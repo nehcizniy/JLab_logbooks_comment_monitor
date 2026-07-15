@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JLab Comment Monitor</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">JLAB LOGBOOKS</p>
+        <div class="title-row">
+          <h1>Comment monitor</h1>
+          <button id="help-button" class="help-button" type="button" aria-label="Show help" aria-expanded="false" aria-controls="help-panel" title="Help">?</button>
+        </div>
+      </div>
+      <label class="switch" aria-label="Turn monitor on or off">
+        <input id="enabled" type="checkbox">
+        <span class="slider"></span>
+      </label>
+    </header>
+
+    <section id="help-panel" class="help-panel" aria-label="Quick help" hidden>
+      <strong>Quick help</strong>
+      <ul>
+        <li>Use the top switch to start or pause automatic checks.</li>
+        <li>Use Check now for an immediate scan.</li>
+        <li>Configure each logbook by entry count, hours, or days.</li>
+        <li>Turn off DTM recurring reminders to receive only event changes.</li>
+        <li>Chrome must remain running for scheduled checks.</li>
+      </ul>
+    </section>
+
+    <div class="top-actions">
+      <button id="check" class="primary">Check now</button>
+      <button id="clear">Clear alerts</button>
+    </div>
+
+    <section class="status-card">
+      <span id="status-dot" class="dot"></span>
+      <div>
+        <p id="status" class="status">Loading…</p>
+        <p id="detail" class="detail"></p>
+      </div>
+    </section>
+
+    <details class="shift-summary-card" open>
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Shift summaries</strong>
+          <small>Matches within each logbook’s configured check range</small>
+        </span>
+      </summary>
+      <div id="shift-summary-list" class="shift-summary-list"></div>
+    </details>
+
+    <section class="interval-control">
+      <label for="interval">Automatic check interval</label>
+      <select id="interval">
+        <option value="5">Every 5 minutes</option>
+        <option value="10">Every 10 minutes</option>
+        <option value="15">Every 15 minutes</option>
+        <option value="30">Every 30 minutes</option>
+        <option value="60">Every 60 minutes</option>
+      </select>
+    </section>
+
+    <section class="dtm-reminder-control">
+      <div>
+        <p>DTM recurring reminders</p>
+        <span>Off: notify only when the event changes</span>
+      </div>
+      <label class="small-switch" aria-label="Repeat DTM notifications while an event remains open">
+        <input id="repeat-dtm-alerts" type="checkbox">
+        <span class="small-slider"></span>
+      </label>
+    </section>
+
+    <details class="book-controls" open>
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Monitored logbooks</strong>
+          <small>Add logbooks and configure each automatic check</small>
+        </span>
+      </summary>
+      <div class="book-controls-body">
+        <div class="book-add-row">
+          <input id="book-url" type="text" placeholder="Paste a JLab logbook URL">
+          <button id="add-book">Add</button>
+        </div>
+        <span id="book-add-status" class="book-add-status" aria-live="polite"></span>
+        <div id="book-control-list" class="book-control-list"></div>
+        <section id="book-diagnostics" class="book-diagnostics" aria-label="Tracking details"></section>
+      </div>
+    </details>
+
+    <details class="author-watch" open>
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Notify for new entries by</strong>
+          <small>Watch one or more author names</small>
+        </span>
+      </summary>
+      <div class="author-watch-body">
+        <label for="authors">Author names</label>
+        <textarea id="authors" rows="3" placeholder="Enter usernames or author names, one per line"></textarea>
+        <div class="author-row">
+          <span id="author-status">Exact match, ignoring capitalization</span>
+          <div class="author-buttons">
+            <button id="test-author">Test author match</button>
+            <button id="save-authors">Save authors</button>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <p class="footnote">Version <span id="extension-version"></span> · Checks run without opening background tabs. A tab opens only when you choose to open an entry or logbook.</p>
+
+    <div class="actions" aria-label="Notification tests">
+      <button id="test-notification">Test system notification</button>
+      <button id="test-comment">Test comment match</button>
+    </div>
+    <p id="comment-test-status" class="footnote" aria-live="polite"></p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
