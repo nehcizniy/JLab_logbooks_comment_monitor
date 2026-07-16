@@ -60,6 +60,15 @@ input:checked + .slider::before { transform: translateX(20px); }
 }
 
 .top-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 12px; }
+.recent-alarms-card { margin-top: 10px; padding: 11px 12px; border: 1px solid #d9e1ec; border-radius: 11px; background: #fff; }
+.recent-alarms-body { margin-top: 9px; }
+.recent-alarms-list { display: grid; max-height: 260px; gap: 6px; overflow-y: auto; }
+.recent-alarm-item { display: grid; min-height: 0; gap: 3px; padding: 8px 9px; border-color: #d9e1ec; border-radius: 8px; text-align: left; white-space: normal; }
+.recent-alarm-item strong { color: #33445e; font-size: 10px; line-height: 1.3; }
+.recent-alarm-item span { color: #738095; font-size: 8px; font-weight: 500; line-height: 1.35; }
+.recent-alarm-item:disabled { cursor: default; opacity: 1; }
+.recent-alarms-empty { color: #7a8596; font-size: 9px; }
+.expand-alarms { width: 100%; min-height: 29px; margin-top: 7px; padding: 0 8px; font-size: 9px; }
 .shift-summary-card { margin-top: 10px; padding: 11px 12px; border: 1px solid #cbd9ea; border-radius: 11px; background: #edf4fc; }
 .fold-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; list-style: none; cursor: pointer; user-select: none; }
 .fold-summary::-webkit-details-marker { display: none; }
@@ -71,7 +80,10 @@ details[open] > .fold-summary::after { transform: rotate(90deg); }
 .fold-summary-copy small { color: #6b798e; font-size: 9px; line-height: 1.35; }
 .shift-summary-list { display: grid; max-height: 210px; gap: 9px; margin-top: 9px; overflow-y: auto; }
 .shift-summary-list section { display: grid; gap: 5px; }
+.shift-summary-group-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .shift-summary-list h3 { margin: 0; color: #365d87; font-size: 10px; }
+.shift-summary-edit-toggle { display: flex; align-items: center; gap: 5px; color: #6b798e; font-size: 8px; font-weight: 700; }
+.shift-summary-edit-toggle .small-switch { transform: scale(.82); transform-origin: right center; }
 .shift-summary-link { min-height: 29px; padding: 5px 8px; border-color: #c7d7e9; background: #fff; font-size: 9px; line-height: 1.3; text-align: left; white-space: normal; }
 .shift-summary-empty { color: #7a8596; font-size: 9px; }
 
@@ -88,7 +100,9 @@ details[open] > .fold-summary::after { transform: rotate(90deg); }
 .interval-control select:focus { outline: 2px solid #274d7830; border-color: #577ba4; }
 .dtm-reminder-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 9px; padding: 10px 12px; border: 1px solid #d9e1ec; border-radius: 10px; background: #fff; }
 .dtm-reminder-control p { margin: 0 0 2px; color: #33445e; font-size: 11px; font-weight: 750; }
-.dtm-reminder-control div > span { display: block; color: #738095; font-size: 9px; line-height: 1.35; }
+.dtm-reminder-copy > span { display: block; color: #738095; font-size: 9px; line-height: 1.35; }
+.dtm-reminder-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.dtm-reminder-actions button { min-height: 28px; padding: 0 8px; font-size: 9px; }
 .small-switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: 0 0 auto; }
 .small-switch input { width: 0; height: 0; opacity: 0; }
 .small-slider { position: absolute; inset: 0; cursor: pointer; border-radius: 999px; background: #aeb8c6; transition: .2s; }
@@ -142,3 +156,11 @@ button.primary:hover { background: #1e3e63; }
 .author-buttons { display: flex; gap: 6px; flex: 0 0 auto; }
 .author-buttons button { padding: 0 8px; font-size: 10px; }
 .footnote { margin: 14px 2px 0; color: #7a8596; font-size: 10px; line-height: 1.45; }
+.settings-backup { margin-top: 12px; padding: 10px 12px; border: 1px solid #d9e1ec; border-radius: 10px; background: #fff; }
+.settings-backup-body { margin-top: 10px; }
+.settings-backup-body p { margin: 0; color: #6f7c90; font-size: 9px; line-height: 1.4; }
+.settings-backup-body .extension-id-line { margin-top: 5px; }
+.extension-id-line code { color: #33445e; font-size: 8px; overflow-wrap: anywhere; user-select: all; }
+.settings-backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
+.settings-backup-actions button { min-height: 32px; padding: 0 8px; font-size: 10px; }
+.settings-backup-status { display: block; min-height: 14px; margin-top: 6px; color: #5f6d81; font-size: 9px; line-height: 1.35; }

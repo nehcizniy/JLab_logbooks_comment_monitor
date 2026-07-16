@@ -8,6 +8,7 @@ const helpButton = document.querySelector("#help-button");
 const helpPanel = document.querySelector("#help-panel");
 const intervalInput = document.querySelector("#interval");
 const repeatDtmAlertsInput = document.querySelector("#repeat-dtm-alerts");
+const openDtmButton = document.querySelector("#open-dtm");
 const bookUrlInput = document.querySelector("#book-url");
 const addBookButton = document.querySelector("#add-book");
 const bookAddStatus = document.querySelector("#book-add-status");
@@ -27,9 +28,22 @@ const saveAuthorsButton = document.querySelector("#save-authors");
 const testAuthorButton = document.querySelector("#test-author");
 const authorStatus = document.querySelector("#author-status");
 const bookDiagnostics = document.querySelector("#book-diagnostics");
+const exportSettingsButton = document.querySelector("#export-settings");
+const importSettingsButton = document.querySelector("#import-settings");
+const importSettingsFile = document.querySelector("#import-settings-file");
+const settingsBackupStatus = document.querySelector("#settings-backup-status");
+const extensionId = document.querySelector("#extension-id");
+const recentAlarmsList = document.querySelector("#recent-alarms-list");
+const expandAlarmsButton = document.querySelector("#expand-alarms");
 let authorsLoaded = false;
+let recentAlarmLimit = 5;
+
+const SETTINGS_BACKUP_FORMAT = "jlab-logbook-comment-monitor-backup";
+const SETTINGS_BACKUP_VERSION = 1;
+const TRANSIENT_STORAGE_KEYS = new Set(["checking", "lastError", "shiftSummaryEditError", "pendingAlerts"]);
 
 extensionVersion.textContent = chrome.runtime.getManifest().version;
+extensionId.textContent = chrome.runtime.id;
 
 helpButton.addEventListener("click", () => {
   const willOpen = helpPanel.hidden;
@@ -51,6 +65,19 @@ intervalInput.addEventListener("change", async () => {
 
 repeatDtmAlertsInput.addEventListener("change", async () => {
   await chrome.storage.local.set({ repeatDtmAlerts: repeatDtmAlertsInput.checked });
+});
+
+openDtmButton.addEventListener("click", () => {
+  chrome.tabs.create({ url: "https://ace.jlab.org/dtm/open-events" });
+});
+
+exportSettingsButton.addEventListener("click", exportSettings);
+importSettingsButton.addEventListener("click", () => importSettingsFile.click());
+importSettingsFile.addEventListener("change", importSettings);
+expandAlarmsButton.addEventListener("click", async () => {
+  recentAlarmLimit = recentAlarmLimit === 5 ? 20 : 5;
+  const { alertHistory = [] } = await chrome.storage.local.get("alertHistory");
+  renderRecentAlarms(alertHistory);
 });
 
 addBookButton.addEventListener("click", addBook);
@@ -111,10 +138,10 @@ saveAuthorsButton.addEventListener("click", async () => {
   await chrome.storage.local.set({ watchedAuthors });
   authorsInput.value = watchedAuthors.join("\n");
   authorStatus.textContent = watchedAuthors.length
-    ? `Watching ${watchedAuthors.length} ${watchedAuthors.length === 1 ? "author" : "authors"}`
-    : "Author alerts are off";
+    ? `Watching ${watchedAuthors.length} ${watchedAuthors.length === 1 ? "name" : "names"}`
+    : "Name alerts are off";
   saveAuthorsButton.textContent = "Saved";
-  setTimeout(() => { saveAuthorsButton.textContent = "Save authors"; }, 900);
+  setTimeout(() => { saveAuthorsButton.textContent = "Save names"; }, 900);
 });
 
 testAuthorButton.addEventListener("click", async () => {
@@ -122,7 +149,7 @@ testAuthorButton.addEventListener("click", async () => {
   testAuthorButton.textContent = "Searching…";
   const result = await chrome.runtime.sendMessage({ type: "test-author-match" });
   if (result?.ok) {
-    authorStatus.textContent = `Matched ${result.match.author} on ${result.match.book} #${result.match.lognumber}`;
+    authorStatus.textContent = `Matched ${result.match.matchSummary} on ${result.match.book} #${result.match.lognumber}`;
     testAuthorButton.textContent = "Alert opened";
   } else {
     authorStatus.textContent = result?.error || "No matching entry found";
@@ -130,7 +157,7 @@ testAuthorButton.addEventListener("click", async () => {
   }
   setTimeout(() => {
     testAuthorButton.disabled = false;
-    testAuthorButton.textContent = "Test author match";
+    testAuthorButton.textContent = "Test name match";
   }, 1600);
 });
 
@@ -158,10 +185,87 @@ async function addBook() {
   await render();
 }
 
+async function exportSettings() {
+  exportSettingsButton.disabled = true;
+  settingsBackupStatus.textContent = "Preparing backup…";
+  try {
+    const stored = await chrome.storage.local.get(null);
+    const storage = Object.fromEntries(
+      Object.entries(stored).filter(([key]) => !TRANSIENT_STORAGE_KEYS.has(key))
+    );
+    const backup = {
+      format: SETTINGS_BACKUP_FORMAT,
+      formatVersion: SETTINGS_BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      extensionVersion: chrome.runtime.getManifest().version,
+      sourceExtensionId: chrome.runtime.id,
+      storage
+    };
+    const blob = new Blob([`${JSON.stringify(backup, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `jlab-logbook-monitor-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    settingsBackupStatus.textContent = "Settings exported. Keep the JSON file private.";
+  } catch (error) {
+    settingsBackupStatus.textContent = `Export failed: ${error.message}`;
+  } finally {
+    exportSettingsButton.disabled = false;
+  }
+}
+
+async function importSettings() {
+  const [file] = importSettingsFile.files || [];
+  importSettingsFile.value = "";
+  if (!file) return;
+  importSettingsButton.disabled = true;
+  settingsBackupStatus.textContent = "Restoring settings…";
+  try {
+    if (file.size > 10 * 1024 * 1024) throw new Error("Backup file is too large");
+    const backup = JSON.parse(await file.text());
+    validateSettingsBackup(backup);
+    const restoredStorage = Object.fromEntries(
+      Object.entries(backup.storage).filter(([key]) => !TRANSIENT_STORAGE_KEYS.has(key))
+    );
+    await chrome.storage.local.clear();
+    await chrome.storage.local.set({ ...restoredStorage, checking: false, lastError: "", pendingAlerts: {} });
+    await chrome.runtime.sendMessage({ type: "settings-restored" });
+    authorsLoaded = false;
+    settingsBackupStatus.textContent = "Settings restored successfully.";
+    await render();
+  } catch (error) {
+    settingsBackupStatus.textContent = `Import failed: ${error.message}`;
+  } finally {
+    importSettingsButton.disabled = false;
+  }
+}
+
+function validateSettingsBackup(backup) {
+  if (!backup || typeof backup !== "object" || Array.isArray(backup)) {
+    throw new Error("Not a valid settings backup");
+  }
+  if (backup.format !== SETTINGS_BACKUP_FORMAT || backup.formatVersion !== SETTINGS_BACKUP_VERSION) {
+    throw new Error("Unsupported settings backup format");
+  }
+  if (!backup.storage || typeof backup.storage !== "object" || Array.isArray(backup.storage)) {
+    throw new Error("Backup does not contain extension settings");
+  }
+  for (const key of Object.keys(backup.storage)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      throw new Error("Backup contains an invalid setting name");
+    }
+  }
+}
+
 async function render() {
   const state = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "checking", "initialized", "lastCheck", "lastError", "trackedEntries", "watchedAuthors",
-    "lastDetectedEvents", "bookDiagnostics", "commentCursor", "shiftSummariesByBook", "repeatDtmAlerts"
+    "lastDetectedEvents", "bookDiagnostics", "commentCursor", "shiftSummariesByBook", "repeatDtmAlerts",
+    "shiftSummaryEditEnabledBooks", "shiftSummaryEditError", "alertHistory"
   ]);
   const enabled = state.enabled !== false;
   const monitoredBooks = normalizeMonitoredBooks(state.monitoredBooks);
@@ -176,13 +280,22 @@ async function render() {
   enabledInput.checked = enabled;
   intervalInput.value = String(intervalMinutes);
   repeatDtmAlertsInput.checked = state.repeatDtmAlerts !== false;
+  const shiftEditEnabledBookSlugs = normalizeEnabledSlugs(state.shiftSummaryEditEnabledBooks, monitoredBooks);
   renderBookControls(monitoredBooks, enabledBookSlugs);
-  renderShiftSummaries(state.shiftSummariesByBook, activeBooks, state.initialized);
+  renderShiftSummaries(
+    state.shiftSummariesByBook,
+    activeBooks,
+    state.initialized,
+    shiftEditEnabledBookSlugs,
+    monitoredBooks,
+    state.shiftSummaryEditError
+  );
+  renderRecentAlarms(state.alertHistory);
   if (!authorsLoaded) {
     const authors = Array.isArray(state.watchedAuthors) ? state.watchedAuthors : [];
     authorsInput.value = authors.join("\n");
     authorStatus.textContent = authors.length
-      ? `Watching ${authors.length} ${authors.length === 1 ? "author" : "authors"}`
+      ? `Watching ${authors.length} ${authors.length === 1 ? "name" : "names"}`
       : "Exact match, ignoring capitalization";
     authorsLoaded = true;
   }
@@ -218,7 +331,72 @@ async function render() {
   renderDiagnostics(state.bookDiagnostics, monitoredBooks, enabledBookSlugs);
 }
 
-function renderShiftSummaries(summariesByBook, activeBooks, initialized) {
+function renderRecentAlarms(value) {
+  const alarms = normalizeAlertHistory(value);
+  recentAlarmsList.replaceChildren();
+
+  if (!alarms.length) {
+    const empty = document.createElement("span");
+    empty.className = "recent-alarms-empty";
+    empty.textContent = "No alarms recorded yet.";
+    recentAlarmsList.append(empty);
+    expandAlarmsButton.hidden = true;
+    return;
+  }
+
+  for (const alarm of alarms.slice(0, recentAlarmLimit)) {
+    const button = document.createElement("button");
+    const title = document.createElement("strong");
+    const meta = document.createElement("span");
+    button.className = "recent-alarm-item";
+    title.textContent = alarm.systemTitle;
+    meta.textContent = `${formatAlarmTime(alarm.createdAt)} · ${alarm.message}`;
+    button.title = alarm.url ? "Open this alarm" : alarm.systemTitle;
+    button.disabled = !alarm.url;
+    button.append(title, meta);
+    if (alarm.url) button.addEventListener("click", () => chrome.tabs.create({ url: alarm.url }));
+    recentAlarmsList.append(button);
+  }
+
+  expandAlarmsButton.hidden = alarms.length <= 5;
+  expandAlarmsButton.textContent = recentAlarmLimit === 5
+    ? `Show up to 20 (${Math.min(alarms.length, 20)} available)`
+    : "Show latest 5";
+}
+
+function normalizeAlertHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((alarm) => alarm && typeof alarm.systemTitle === "string" && Number.isFinite(Number(alarm.createdAt)))
+    .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
+    .slice(0, 20)
+    .map((alarm) => ({
+      systemTitle: alarm.systemTitle,
+      message: typeof alarm.message === "string" ? alarm.message : "",
+      url: typeof alarm.url === "string" ? alarm.url : "",
+      createdAt: Number(alarm.createdAt)
+    }));
+}
+
+function formatAlarmTime(value) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function renderShiftSummaries(
+  summariesByBook,
+  activeBooks,
+  initialized,
+  shiftEditEnabledBookSlugs,
+  monitoredBooks,
+  shiftSummaryEditError
+) {
   shiftSummaryList.replaceChildren();
   if (!activeBooks.length) {
     const empty = document.createElement("span");
@@ -230,10 +408,48 @@ function renderShiftSummaries(summariesByBook, activeBooks, initialized) {
 
   for (const book of activeBooks) {
     const group = document.createElement("section");
+    const header = document.createElement("div");
     const heading = document.createElement("h3");
+    const editControl = document.createElement("div");
+    const editLabel = document.createElement("span");
+    const switchLabel = document.createElement("label");
+    const editCheckbox = document.createElement("input");
+    const slider = document.createElement("span");
     const summaries = Array.isArray(summariesByBook?.[book.slug]) ? summariesByBook[book.slug] : [];
+    header.className = "shift-summary-group-header";
+    editControl.className = "shift-summary-edit-toggle";
+    editLabel.textContent = "Edit alerts";
+    switchLabel.className = "small-switch";
+    switchLabel.setAttribute("aria-label", `Notify when the latest ${book.name} shift summary is edited`);
+    editCheckbox.type = "checkbox";
+    editCheckbox.checked = shiftEditEnabledBookSlugs.includes(book.slug);
+    slider.className = "small-slider";
+    switchLabel.append(editCheckbox, slider);
+    editControl.append(editLabel, switchLabel);
+    if (shiftSummaryEditError?.includes(`${book.name}:`)) editControl.title = shiftSummaryEditError;
     heading.textContent = `${book.name} (${summaries.length})`;
-    group.append(heading);
+    header.append(heading, editControl);
+    group.append(header);
+
+    editCheckbox.addEventListener("change", async () => {
+      editCheckbox.disabled = true;
+      const selected = new Set(shiftEditEnabledBookSlugs);
+      if (editCheckbox.checked) selected.add(book.slug);
+      else selected.delete(book.slug);
+      const { shiftSummaryFingerprints = {} } = await chrome.storage.local.get("shiftSummaryFingerprints");
+      const nextFingerprints = { ...shiftSummaryFingerprints };
+      delete nextFingerprints[book.slug];
+      await chrome.storage.local.set({
+        shiftSummaryEditEnabledBooks: monitoredBooks
+          .filter((item) => selected.has(item.slug))
+          .map((item) => item.slug),
+        shiftSummaryFingerprints: nextFingerprints
+      });
+      if (editCheckbox.checked && enabledInput.checked) {
+        await chrome.runtime.sendMessage({ type: "check-now" });
+      }
+      await render();
+    });
 
     if (!summaries.length) {
       const empty = document.createElement("span");

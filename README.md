@@ -1,6 +1,6 @@
 # JLab Logbook Comment Monitor
 
-This Chrome extension checks any user-selected JLab logbooks on a selectable 5, 10, 15, 30, or 60 minute interval. Each logbook has its own adjustable check range: the latest 1–1000 entries, the latest 1–720 hours, or the latest 1–30 days. The default is 100 entries. HCLOG, HBLOG, and SOLID are included initially, and every added logbook can be turned on or off independently. It monitors new comment permalinks and beam-down event state. It can also notify you when selected authors create new entries.
+This Chrome extension checks any user-selected JLab logbooks on a selectable 5, 10, 15, 30, or 60 minute interval. Each logbook has its own adjustable check range: the latest 1–1000 entries, the latest 1–720 hours, or the latest 1–30 days. The default is 100 entries. HCLOG, HBLOG, and SOLID are included initially, and every added logbook can be turned on or off independently. It monitors new comment permalinks and beam-down event state. It can also notify you when selected people appear as an entry's **Author** or **Entry Maker**.
 
 When an entry gains a comment, a native Chrome system notification shows:
 
@@ -8,9 +8,11 @@ When an entry gains a comment, a native Chrome system notification shows:
 - the entry's original creation time;
 - **Clear** and **Go to entry** buttons.
 
-Every alert receives its own notification instance. A later comment, watched-author entry, or beam-event change will not replace an older uncleared notification, even when multiple comments belong to the same logbook entry.
+Every alert receives its own notification instance. A later comment, watched-name entry, or beam-event change will not replace an older uncleared notification, even when multiple comments belong to the same logbook entry.
 
-Each successful check also finds every entry whose title contains **shift summary** within the configured check range for each enabled logbook. The popup groups the matches by logbook and makes every listed entry a direct link.
+The popup includes a collapsible **Recent alarms** menu. It shows the five newest real alerts by default and can expand to the newest twenty. Each saved alarm includes its notification time, title, message, and a link back to the related logbook entry or DTM event. Clearing active system notifications does not erase this recent-alarm history. **Test system notification**, **Test comment match**, and **Test name match** do not add test results to the history.
+
+Each successful check also finds every entry whose title contains **shift summary** within the configured check range for each enabled logbook. The popup groups the matches by logbook and makes every listed entry a direct link. Every logbook group has its own **Edit alerts** switch, which is on by default. For each selected logbook, the extension monitors its newest matching entry and sends a system notification with **Clear** and **Go to entry** buttons if that same entry's title, body, attachments, tags, logbooks, Entry Makers, or attention state changes. Comment activity is excluded from the edit comparison. A newly posted shift summary establishes a new baseline and is not mistaken for an edit. Turning a logbook's switch back on first records a fresh baseline for that logbook, preventing alerts for edits made while its monitoring was off.
 
 The **Shift summaries**, **Monitored logbooks**, and **Notify for new entries by** sections are collapsible to keep the popup compact. Notification test controls are grouped at the bottom of the popup.
 
@@ -25,6 +27,8 @@ Select the small **?** button beside **Comment monitor** for a quick guide insid
 5. Select the extracted `jlab-logbook-comment-monitor` folder.
 6. Pin the extension from Chrome's Extensions menu if you want its switch to stay visible.
 
+All unpacked installations use the permanent extension ID `gbfomjfeblcepcnmbohebdpndbfkcabj`. The public key that produces this ID is stored in `manifest.json`, so the ID remains the same when the folder is moved, the extension is installed on another computer, or a new version is loaded. Do not remove or replace the manifest's `key` value.
+
 ## Update
 
 1. Download and extract the newer ZIP file.
@@ -32,7 +36,25 @@ Select the small **?** button beside **Comment monitor** for a quick guide insid
 3. Open `chrome://extensions`.
 4. Find **JLab Logbook Comment Monitor** and click **Reload**.
 
-Keeping the same extension folder and using **Reload** preserves the extension's locally stored settings. Do not click **Remove** as part of an update, because removing and reinstalling the extension may reset those settings.
+After version 2.16.0, the fixed extension ID—not the folder location—identifies the extension. Using **Reload** normally preserves locally stored settings. Do not click **Remove** as part of an ordinary update, because removing and reinstalling the extension may reset those settings.
+
+## Back up or restore settings
+
+Open **Settings backup** in the extension popup and choose **Export settings** to save the configured logbooks, check ranges, watch names, switches, and monitoring baselines to a JSON file. Choose **Import settings** to restore that file after reinstalling the extension, moving to another computer, or completing an extension-ID migration. Exported backups deliberately exclude active system notifications and temporary error/checking state.
+
+Keep the backup file private. It contains the extension's saved configuration and monitoring history. If a future version stores an email authorization token locally, that token may also be included so the account can be restored.
+
+### One-time upgrade to the permanent ID
+
+Versions before 2.16.0 used an ID based on the unpacked folder and require one migration:
+
+1. In the old extension, export a settings backup before replacing or reloading its files.
+2. Update the extension files and use **Reload** in `chrome://extensions`. If Chrome reports an error or the extension is no longer listed, choose **Load unpacked** and select the same extension folder.
+3. Open the extension and confirm that **Settings backup** shows ID `gbfomjfeblcepcnmbohebdpndbfkcabj`.
+4. Import the JSON backup. Active system notifications are not restored, but configuration and monitoring baselines are restored.
+5. Click **Check now** and test a system notification. Remove an old-ID copy only after the fixed-ID copy is working.
+
+This migration happens once. Later unpacked updates retain the fixed ID and do not require another ID migration.
 
 ## Uninstall
 
@@ -57,23 +79,23 @@ Comments are tracked by their monotonically increasing permalink IDs, starting f
 
 ## Choose logbooks
 
-Paste a URL such as `https://logbooks.jlab.org/book/moller` into **Monitored logbooks** and click **Add**. The extension verifies the page, reads the logbook's displayed name, adds it, and turns it on. Each row has its own automatic-check box, **Check latest** number and unit controls, plus **Open** and **Remove** buttons. Choose **entries**, **hours**, or **days** independently for every logbook. Selecting a time unit initially uses a one-day window: 24 hours or 1 day. After the user changes a value, that value is remembered separately for that logbook and unit and becomes the value shown the next time that unit is selected. Time-based checks request up to 5,000 matching entries within the selected window. The main switch remains the master control. A disabled logbook is excluded from comment and watched-author alerts; re-enabling it establishes a fresh author baseline before future entries generate notifications.
+Paste a URL such as `https://logbooks.jlab.org/book/moller` into **Monitored logbooks** and click **Add**. The extension verifies the page, reads the logbook's displayed name, adds it, and turns it on. Each row has its own automatic-check box, **Check latest** number and unit controls, plus **Open** and **Remove** buttons. Choose **entries**, **hours**, or **days** independently for every logbook. Selecting a time unit initially uses a one-day window: 24 hours or 1 day. After the user changes a value, that value is remembered separately for that logbook and unit and becomes the value shown the next time that unit is selected. Time-based checks request up to 5,000 matching entries within the selected window. The main switch remains the master control. A disabled logbook is excluded from comment and watched-name alerts; re-enabling it establishes a fresh entry baseline before future entries generate notifications.
 
 The first successful check establishes a baseline and deliberately does not alert for comments that already exist. The monitor is on by default. Use the switch in the extension popup to pause or resume it.
 
-## Watch authors
+## Watch Authors and Entry Makers
 
 1. Open the extension popup.
-2. Enter one or more JLab usernames or displayed author names, separated by commas or one per line.
-3. Click **Save authors**.
+2. Enter one or more JLab usernames or displayed names, separated by commas or one per line.
+3. Click **Save names**.
 
-Author matching is exact but ignores capitalization. Existing entries do not generate alerts when an author is added; only entries first seen during a later check do. Author-entry notifications include **Clear** and **Go to entry** buttons.
+Each saved name is compared with both the entry's **Author** and its comma-separated **Entry Makers** field. Matching is exact but ignores capitalization. Existing entries do not generate alerts when a name is added; only entries first seen during a later check do. The notification identifies whether the match was the Author, an Entry Maker, or both, and includes **Clear** and **Go to entry** buttons. Names already saved by an earlier extension version automatically use this expanded matching.
 
 ## Beam-down events
 
-The extension checks the DTM open-events page directly without opening background tabs whenever at least one logbook monitor is enabled. It uses the DTM event ID as the identity and includes the issue title, start time, and elapsed duration in alerts. By default, every successful check that finds an open DTM event sends a new native system notification, providing a recurring reminder at the selected check interval. Turn off **DTM recurring reminders** to silence those repeat alerts; while silenced, the extension notifies only when an event appears, changes to a different event or title, or closes. Duplicate logbook alerts for the same DTM event within one check are suppressed. Event alerts include **Clear** and **Go to entry**.
+The extension checks the DTM open-events page directly without opening background tabs whenever at least one logbook monitor is enabled. It uses the DTM event ID as the identity and includes the issue title, start time, and elapsed duration in alerts. By default, every successful check that finds an open DTM event sends a new native system notification, providing a recurring reminder at the selected check interval. Turn off **DTM recurring reminders** to silence those repeat alerts; while silenced, the extension notifies only when an event appears, changes to a different event or title, or closes. Select **Open DTM** beside the reminder switch to open JLab's live DTM Open Events page. Duplicate logbook alerts for the same DTM event within one check are suppressed. Event alerts include **Clear** and **Go to entry**.
 
-To verify an author without asking them to create another entry, click **Test author match**. The extension searches the current API results for that author's newest existing entry and previews the same alert used for a future new entry. This preview does not alter the monitoring baseline.
+To verify a name without asking the person to create another entry, click **Test name match**. The extension searches the current API results for the newest existing entry where the person is the Author or an Entry Maker, then previews the same alert used for a future new entry. This preview does not alter the monitoring baseline.
 
 ## Scope and privacy
 

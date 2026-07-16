@@ -27,7 +27,9 @@
       <ul>
         <li>Use the top switch to start or pause automatic checks.</li>
         <li>Use Check now for an immediate scan.</li>
+        <li>Open Recent alarms to review and reopen the latest alerts.</li>
         <li>Configure each logbook by entry count, hours, or days.</li>
+        <li>Use each logbook's Shift summaries switch to control edit notifications.</li>
         <li>Turn off DTM recurring reminders to receive only event changes.</li>
         <li>Chrome must remain running for scheduled checks.</li>
       </ul>
@@ -45,6 +47,19 @@
         <p id="detail" class="detail"></p>
       </div>
     </section>
+
+    <details class="recent-alarms-card">
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Recent alarms</strong>
+          <small>Five newest alerts, expandable to twenty</small>
+        </span>
+      </summary>
+      <div class="recent-alarms-body">
+        <div id="recent-alarms-list" class="recent-alarms-list"></div>
+        <button id="expand-alarms" class="expand-alarms" type="button" hidden>Show up to 20</button>
+      </div>
+    </details>
 
     <details class="shift-summary-card" open>
       <summary class="fold-summary">
@@ -68,14 +83,17 @@
     </section>
 
     <section class="dtm-reminder-control">
-      <div>
+      <div class="dtm-reminder-copy">
         <p>DTM recurring reminders</p>
         <span>Off: notify only when the event changes</span>
       </div>
-      <label class="small-switch" aria-label="Repeat DTM notifications while an event remains open">
-        <input id="repeat-dtm-alerts" type="checkbox">
-        <span class="small-slider"></span>
-      </label>
+      <div class="dtm-reminder-actions">
+        <button id="open-dtm" type="button">Open DTM</button>
+        <label class="small-switch" aria-label="Repeat DTM notifications while an event remains open">
+          <input id="repeat-dtm-alerts" type="checkbox">
+          <span class="small-slider"></span>
+        </label>
+      </div>
     </section>
 
     <details class="book-controls" open>
@@ -100,19 +118,38 @@
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Notify for new entries by</strong>
-          <small>Watch one or more author names</small>
+          <small>Match Authors or Entry Makers</small>
         </span>
       </summary>
       <div class="author-watch-body">
-        <label for="authors">Author names</label>
-        <textarea id="authors" rows="3" placeholder="Enter usernames or author names, one per line"></textarea>
+        <label for="authors">Names to watch</label>
+        <textarea id="authors" rows="3" placeholder="Enter Author or Entry Maker names, one per line"></textarea>
         <div class="author-row">
           <span id="author-status">Exact match, ignoring capitalization</span>
           <div class="author-buttons">
-            <button id="test-author">Test author match</button>
-            <button id="save-authors">Save authors</button>
+            <button id="test-author">Test name match</button>
+            <button id="save-authors">Save names</button>
           </div>
         </div>
+      </div>
+    </details>
+
+    <details class="settings-backup">
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Settings backup</strong>
+          <small>Export or restore logbooks, watch settings, and monitoring baselines</small>
+        </span>
+      </summary>
+      <div class="settings-backup-body">
+        <p>Export before changing the extension ID or moving to another computer.</p>
+        <p class="extension-id-line">Extension ID: <code id="extension-id"></code></p>
+        <div class="settings-backup-actions">
+          <button id="export-settings" type="button">Export settings</button>
+          <button id="import-settings" type="button">Import settings</button>
+          <input id="import-settings-file" type="file" accept="application/json,.json" hidden>
+        </div>
+        <span id="settings-backup-status" class="settings-backup-status" aria-live="polite"></span>
       </div>
     </details>
 

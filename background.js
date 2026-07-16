@@ -18,12 +18,18 @@ const DEFAULT_BOOKS = [
 ];
 const NOTIFICATION_PREFIX = "jlab-comment:";
 const ENTRY_NOTIFICATION_PREFIX = "jlab-entry:";
+const SHIFT_EDIT_NOTIFICATION_PREFIX = "jlab-shift-edit:";
 const EVENT_NOTIFICATION_PREFIX = "jlab-event:";
 const TEST_NOTIFICATION_ID = "jlab-test";
 const COMMENT_CURSOR_SEED = 58417;
+const MAX_ALERT_HISTORY = 20;
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const current = await chrome.storage.local.get(["enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "entryLimit", "commentCounts", "watchedAuthors", "pageEventStates", "commentCursor", "repeatDtmAlerts"]);
+  const current = await chrome.storage.local.get([
+    "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "entryLimit", "commentCounts", "watchedAuthors",
+    "pageEventStates", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
+    "shiftSummaryFingerprints", "alertHistory"
+  ]);
   const updates = {};
   if (typeof current.enabled !== "boolean") updates.enabled = true;
   const monitoredBooks = normalizeMonitoredBooks(current.monitoredBooks, normalizeEntryLimit(current.entryLimit));
@@ -38,6 +44,20 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!current.pageEventStates) updates.pageEventStates = {};
   if (!Number.isFinite(Number(current.commentCursor))) updates.commentCursor = COMMENT_CURSOR_SEED;
   if (typeof current.repeatDtmAlerts !== "boolean") updates.repeatDtmAlerts = true;
+  if (!Array.isArray(current.shiftSummaryEditEnabledBooks)) {
+    updates.shiftSummaryEditEnabledBooks = current.notifyShiftSummaryEdits === false
+      ? []
+      : monitoredBooks.map((book) => book.slug);
+  } else {
+    updates.shiftSummaryEditEnabledBooks = normalizeEnabledBooks(
+      current.shiftSummaryEditEnabledBooks,
+      monitoredBooks
+    ).map((book) => book.slug);
+  }
+  if (!current.shiftSummaryFingerprints || typeof current.shiftSummaryFingerprints !== "object") {
+    updates.shiftSummaryFingerprints = {};
+  }
+  if (!Array.isArray(current.alertHistory)) updates.alertHistory = [];
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
   await syncAlarm();
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
@@ -104,6 +124,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: friendlyError(error) }));
     return true;
   }
+  if (message?.type === "settings-restored") {
+    Promise.all([syncAlarm(), updateAlertBadge({})])
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   return false;
 });
 
@@ -150,11 +176,16 @@ async function handleEnabledBooksChange(change) {
   const updates = {};
 
   if (disabledBooks.length) {
-    const { commentCounts = {} } = await chrome.storage.local.get("commentCounts");
+    const { commentCounts = {}, shiftSummaryFingerprints = {} } = await chrome.storage.local.get([
+      "commentCounts", "shiftSummaryFingerprints"
+    ]);
     const nextCounts = Object.fromEntries(
       Object.entries(commentCounts).filter(([key]) => !disabledBooks.some((slug) => key.startsWith(`${slug}:`)))
     );
     updates.commentCounts = nextCounts;
+    updates.shiftSummaryFingerprints = Object.fromEntries(
+      Object.entries(shiftSummaryFingerprints).filter(([slug]) => !disabledBooks.includes(slug))
+    );
   }
   if (!currentBooks.size) updates.commentCursorInitialized = false;
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
@@ -248,15 +279,20 @@ async function checkForComments() {
     commentIdsInitialized = false,
     commentCursor = COMMENT_CURSOR_SEED,
     commentCursorInitialized = false,
-    repeatDtmAlerts = true
+    repeatDtmAlerts = true,
+    shiftSummaryEditEnabledBooks,
+    shiftSummaryFingerprints = {}
   } = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "commentCounts", "initialized", "watchedAuthors", "pageEventStates",
     "renderedCommentCounts", "renderedCommentsInitialized", "seenCommentIds", "commentIdsInitialized",
-    "commentCursor", "commentCursorInitialized", "repeatDtmAlerts"
+    "commentCursor", "commentCursorInitialized", "repeatDtmAlerts", "shiftSummaryEditEnabledBooks", "shiftSummaryFingerprints"
   ]);
   if (!enabled) return;
   const books = normalizeMonitoredBooks(monitoredBooks);
   const activeBooks = normalizeEnabledBooks(enabledBooks, books);
+  const shiftEditEnabledBookSlugs = new Set(
+    normalizeEnabledBooks(shiftSummaryEditEnabledBooks, books).map((book) => book.slug)
+  );
 
   await chrome.storage.local.set({ checking: true, lastError: "" });
 
@@ -268,6 +304,8 @@ async function checkForComments() {
       trackedEntries: 0,
       latestShiftSummary: null,
       shiftSummariesByBook: {},
+      shiftSummaryFingerprints: {},
+      shiftSummaryEditError: "",
       lastDetectedEvents: 0,
       bookDiagnostics: {}
     });
@@ -281,13 +319,18 @@ async function checkForComments() {
     ]);
     const pageEvents = activeBooks.map((book) => ({ ...dtmEvent, book: book.name, bookSlug: book.slug }));
     const entries = results.flat();
-    const shiftSummariesByBook = Object.fromEntries(
+    const shiftSummaryEntriesByBook = Object.fromEntries(
       results.map((bookEntries, index) => [
         activeBooks[index].slug,
         bookEntries
           .filter((entry) => cleanTitle(entry.title).toLocaleLowerCase().includes("shift summary"))
           .sort((a, b) => Number(b.lognumber) - Number(a.lognumber))
-          .map((entry) => ({
+      ])
+    );
+    const shiftSummariesByBook = Object.fromEntries(
+      activeBooks.map((book) => [
+        book.slug,
+        (shiftSummaryEntriesByBook[book.slug] || []).map((entry) => ({
             book: entry.book,
             bookSlug: entry.bookSlug,
             lognumber: entry.lognumber,
@@ -297,6 +340,9 @@ async function checkForComments() {
           }))
       ])
     );
+    const shiftEditEntriesByBook = Object.fromEntries(
+      Object.entries(shiftSummaryEntriesByBook).filter(([bookSlug]) => shiftEditEnabledBookSlugs.has(bookSlug))
+    );
     const nextCounts = Object.fromEntries(
       Object.entries(commentCounts).filter(([key]) => activeBooks.some((book) => key.startsWith(`${book.slug}:`)))
     );
@@ -304,9 +350,9 @@ async function checkForComments() {
     const nextSeenCommentIds = { ...seenCommentIds };
     const nextPageEventStates = { ...pageEventStates };
     const commentAlerts = [];
-    const authorAlerts = [];
+    const watchedNameAlerts = [];
     const eventAlerts = [];
-    const authorSet = new Set(watchedAuthors.map(normalizeAuthor).filter(Boolean));
+    const watchedNameSet = new Set(watchedAuthors.map(normalizeAuthor).filter(Boolean));
     const baselineBooks = new Set(
       Object.keys(commentCounts).map((key) => key.split(":", 1)[0])
     );
@@ -315,10 +361,10 @@ async function checkForComments() {
       const key = `${entry.bookSlug}:${entry.lognumber}`;
       const current = parseCommentCount(entry);
       const isNewEntry = !Object.prototype.hasOwnProperty.call(commentCounts, key);
-      const isWatchedAuthor = authorSet.has(normalizeAuthor(entry.author));
+      const watchedMatches = findWatchedNameMatches(entry, watchedNameSet);
 
-      if (initialized && baselineBooks.has(entry.bookSlug) && isNewEntry && isWatchedAuthor) {
-        authorAlerts.push(entry);
+      if (initialized && baselineBooks.has(entry.bookSlug) && isNewEntry && watchedMatches.length) {
+        watchedNameAlerts.push({ ...entry, watchedMatches });
       }
       nextCounts[key] = current;
     }
@@ -335,13 +381,19 @@ async function checkForComments() {
       }
     }
 
-    const commentScan = await scanNewComments(
-      Number(commentCursor) || COMMENT_CURSOR_SEED,
-      commentCursorInitialized,
-      entryMetadata,
-      activeBooks
-    );
+    const [commentScan, shiftEditResult] = await Promise.all([
+      scanNewComments(
+        Number(commentCursor) || COMMENT_CURSOR_SEED,
+        commentCursorInitialized,
+        entryMetadata,
+        activeBooks
+      ),
+      shiftEditEnabledBookSlugs.size
+        ? scanLatestShiftSummaryEdits(shiftEditEntriesByBook, shiftSummaryFingerprints)
+        : Promise.resolve({ alerts: [], fingerprints: {}, errors: [] })
+    ]);
     commentAlerts.push(...commentScan.alerts);
+    const shiftEditAlerts = shiftEditResult.alerts;
 
     const queuedEventChanges = new Set();
     for (const currentEvent of pageEvents) {
@@ -386,7 +438,9 @@ async function checkForComments() {
       trackedEntries: entries.length,
       latestShiftSummary: null,
       shiftSummariesByBook,
-      lastDetectedEvents: commentAlerts.length + authorAlerts.length + eventAlerts.length,
+      shiftSummaryFingerprints: shiftEditResult.fingerprints,
+      shiftSummaryEditError: shiftEditResult.errors.join(" "),
+      lastDetectedEvents: commentAlerts.length + watchedNameAlerts.length + shiftEditAlerts.length + eventAlerts.length,
       bookDiagnostics: Object.fromEntries(results.map((bookEntries, index) => {
         const newest = [...bookEntries].sort((a, b) => Number(b.lognumber) - Number(a.lognumber))[0];
         return [activeBooks[index].slug, {
@@ -400,7 +454,8 @@ async function checkForComments() {
     });
 
     for (const entry of commentAlerts) await showCommentNotification(entry);
-    for (const entry of authorAlerts) await showAuthorNotification(entry);
+    for (const entry of watchedNameAlerts) await showWatchedNameNotification(entry);
+    for (const entry of shiftEditAlerts) await showShiftSummaryEditNotification(entry);
     for (const entry of eventAlerts) await showEventNotification(entry);
   } catch (error) {
     const message = friendlyError(error);
@@ -454,15 +509,22 @@ async function addLogbook(value) {
   };
   await fetchBook(book);
 
-  const state = await chrome.storage.local.get(["monitoredBooks", "enabledBooks"]);
+  const state = await chrome.storage.local.get(["monitoredBooks", "enabledBooks", "shiftSummaryEditEnabledBooks"]);
   const books = normalizeMonitoredBooks(state.monitoredBooks);
   const existing = books.find((item) => item.slug === slug);
   const nextBooks = existing ? books : [...books, book];
   const enabled = new Set(normalizeEnabledBooks(state.enabledBooks, books).map((item) => item.slug));
   enabled.add(slug);
+  const shiftEditEnabled = new Set(
+    normalizeEnabledBooks(state.shiftSummaryEditEnabledBooks, books).map((item) => item.slug)
+  );
+  if (!existing) shiftEditEnabled.add(slug);
   await chrome.storage.local.set({
     monitoredBooks: nextBooks,
-    enabledBooks: nextBooks.filter((item) => enabled.has(item.slug)).map((item) => item.slug)
+    enabledBooks: nextBooks.filter((item) => enabled.has(item.slug)).map((item) => item.slug),
+    shiftSummaryEditEnabledBooks: nextBooks
+      .filter((item) => shiftEditEnabled.has(item.slug))
+      .map((item) => item.slug)
   });
   return existing || book;
 }
@@ -470,11 +532,15 @@ async function addLogbook(value) {
 async function removeLogbook(value) {
   const slug = String(value || "").trim().toLocaleLowerCase();
   const state = await chrome.storage.local.get([
-    "monitoredBooks", "enabledBooks", "commentCounts", "pageEventStates", "bookDiagnostics", "shiftSummariesByBook"
+    "monitoredBooks", "enabledBooks", "commentCounts", "pageEventStates", "bookDiagnostics", "shiftSummariesByBook",
+    "shiftSummaryFingerprints", "shiftSummaryEditEnabledBooks"
   ]);
   const books = normalizeMonitoredBooks(state.monitoredBooks);
   const nextBooks = books.filter((book) => book.slug !== slug);
   const nextEnabled = normalizeEnabledBooks(state.enabledBooks, books)
+    .filter((book) => book.slug !== slug)
+    .map((book) => book.slug);
+  const nextShiftEditEnabled = normalizeEnabledBooks(state.shiftSummaryEditEnabledBooks, books)
     .filter((book) => book.slug !== slug)
     .map((book) => book.slug);
   const nextCounts = Object.fromEntries(
@@ -483,9 +549,11 @@ async function removeLogbook(value) {
   const nextEventStates = { ...(state.pageEventStates || {}) };
   const nextDiagnostics = { ...(state.bookDiagnostics || {}) };
   const nextShiftSummaries = { ...(state.shiftSummariesByBook || {}) };
+  const nextShiftFingerprints = { ...(state.shiftSummaryFingerprints || {}) };
   delete nextEventStates[slug];
   delete nextDiagnostics[slug];
   delete nextShiftSummaries[slug];
+  delete nextShiftFingerprints[slug];
   await chrome.storage.local.set({
     monitoredBooks: nextBooks,
     enabledBooks: nextEnabled,
@@ -493,6 +561,8 @@ async function removeLogbook(value) {
     pageEventStates: nextEventStates,
     bookDiagnostics: nextDiagnostics,
     shiftSummariesByBook: nextShiftSummaries,
+    shiftSummaryFingerprints: nextShiftFingerprints,
+    shiftSummaryEditEnabledBooks: nextShiftEditEnabled,
     ...(nextEnabled.length ? {} : { commentCursorInitialized: false })
   });
 }
@@ -507,7 +577,9 @@ async function fetchBook(book) {
   // A changing, valid query parameter prevents intermediary caches from serving stale counts.
   params.set("enddate", new Date().toISOString());
   params.set("limit", String(rangeType === "entries" ? rangeValue : MAX_TIME_RANGE_RESULTS));
-  for (const field of ["lognumber", "title", "created", "author", "numcomments"]) params.append("field", field);
+  for (const field of ["lognumber", "title", "created", "author", "entrymakers", "numcomments"]) {
+    params.append("field", field);
+  }
 
   const response = await fetch(`${API_ROOT}?${params}`, {
     credentials: "include",
@@ -522,6 +594,104 @@ async function fetchBook(book) {
 
   const payload = await response.json();
   return normalizeEntries(payload).map((entry) => ({ ...entry, book: book.name, bookSlug: book.slug }));
+}
+
+async function fetchEntryDetails(lognumber) {
+  const response = await fetch(`${API_ROOT}/${encodeURIComponent(lognumber)}?monitor_time=${Date.now()}`, {
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
+  if (response.status === 401 || response.status === 403) throw new Error("AUTH_REQUIRED");
+  if (!response.ok) throw new Error(`JLab returned HTTP ${response.status} for entry #${lognumber}`);
+
+  const payload = await response.json();
+  if (payload?.stat && payload.stat !== "ok") {
+    throw new Error(payload.message || `JLab could not return entry #${lognumber}`);
+  }
+  const candidates = [
+    payload?.data?.entry,
+    payload?.data?.logentry,
+    payload?.data?.entries?.[0],
+    payload?.entry,
+    payload?.logentry,
+    payload?.data,
+    payload
+  ];
+  const entry = candidates.find(
+    (candidate) => candidate && typeof candidate === "object" && !Array.isArray(candidate) && "lognumber" in candidate
+  );
+  if (!entry) throw new Error(`JLab returned an unfamiliar response for entry #${lognumber}`);
+  return entry;
+}
+
+async function scanLatestShiftSummaryEdits(shiftSummaryEntriesByBook, previousFingerprints) {
+  const alerts = [];
+  const fingerprints = {};
+  const errors = [];
+  const checks = Object.entries(shiftSummaryEntriesByBook || {}).map(async ([bookSlug, entries]) => {
+    const latest = Array.isArray(entries) ? entries[0] : null;
+    if (!latest?.lognumber) return;
+    const previous = previousFingerprints?.[bookSlug];
+    try {
+      const details = await fetchEntryDetails(latest.lognumber);
+      const fingerprint = await createShiftSummaryFingerprint(details);
+      fingerprints[bookSlug] = {
+        lognumber: String(latest.lognumber),
+        fingerprint,
+        title: cleanTitle(details.title || latest.title),
+        created: details.created || latest.created || null
+      };
+      if (
+        previous?.fingerprint
+        && String(previous.lognumber) === String(latest.lognumber)
+        && previous.fingerprint !== fingerprint
+      ) {
+        alerts.push({
+          ...latest,
+          ...details,
+          book: latest.book,
+          bookSlug,
+          title: details.title || latest.title,
+          created: details.created || latest.created
+        });
+      }
+    } catch (error) {
+      if (previous) fingerprints[bookSlug] = previous;
+      errors.push(`${latest.book || bookSlug}: ${friendlyError(error)}`);
+    }
+  });
+  await Promise.all(checks);
+  return { alerts, fingerprints, errors };
+}
+
+async function createShiftSummaryFingerprint(entry) {
+  const editableContent = {
+    title: entry?.title ?? null,
+    body: entry?.body ?? null,
+    attachments: entry?.attachments ?? null,
+    tags: entry?.tags ?? null,
+    books: entry?.books ?? null,
+    entrymakers: entry?.entrymakers ?? entry?.entryMakers ?? entry?.entry_makers ?? null,
+    needsattention: entry?.needsattention ?? null
+  };
+  const serialized = JSON.stringify(sortForStableSerialization(editableContent));
+  if (!globalThis.crypto?.subtle || typeof TextEncoder === "undefined") {
+    return `${serialized.length}:${stableHash(serialized)}`;
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(serialized));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function sortForStableSerialization(value) {
+  if (Array.isArray(value)) return value.map(sortForStableSerialization);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .filter((key) => typeof value[key] !== "undefined")
+      .map((key) => [key, sortForStableSerialization(value[key])])
+  );
 }
 
 async function fetchDtmEvent() {
@@ -730,7 +900,7 @@ function normalizeEntries(payload) {
   throw new Error("The JLab API returned an unfamiliar response format");
 }
 
-async function showCommentNotification(entry) {
+async function showCommentNotification(entry, recordHistory = true) {
   const notificationId = `${NOTIFICATION_PREFIX}${entry.bookSlug || entry.book}:${entry.lognumber || `comment-${entry.commentId}`}`;
   const plural = entry.added === 1 ? "comment" : "comments";
   await showSystemNotification({
@@ -739,15 +909,30 @@ async function showCommentNotification(entry) {
     message: entry.created
       ? `Entry time: ${formatEntryTime(entry.created)} · ${entry.added} new ${plural}`
       : `${entry.added} new ${plural}`,
-    url: entry.commentUrl || entry.url || `${ENTRY_ROOT}${encodeURIComponent(entry.lognumber)}`
+    url: entry.commentUrl || entry.url || `${ENTRY_ROOT}${encodeURIComponent(entry.lognumber)}`,
+    recordHistory
   });
 }
 
-async function showAuthorNotification(entry) {
+async function showWatchedNameNotification(entry, recordHistory = true) {
   const notificationId = `${ENTRY_NOTIFICATION_PREFIX}${entry.bookSlug || entry.book}:${entry.lognumber}`;
+  const matches = Array.isArray(entry.watchedMatches) ? entry.watchedMatches : [];
+  const matchSummary = formatWatchedNameMatches(matches)
+    || `Author: ${displayAuthor(entry.author)}`;
   await showSystemNotification({
     id: notificationId,
-    systemTitle: `${entry.book}: New entry by ${displayAuthor(entry.author)}`,
+    systemTitle: `${entry.book}: New entry — ${matchSummary}`,
+    message: `${cleanTitle(entry.title)}\nEntry time: ${formatEntryTime(entry.created)}`,
+    url: `${ENTRY_ROOT}${encodeURIComponent(entry.lognumber)}`,
+    recordHistory
+  });
+}
+
+async function showShiftSummaryEditNotification(entry) {
+  const notificationId = `${SHIFT_EDIT_NOTIFICATION_PREFIX}${entry.bookSlug || entry.book}:${entry.lognumber}`;
+  await showSystemNotification({
+    id: notificationId,
+    systemTitle: `${entry.book}: Latest shift summary edited`,
     message: `${cleanTitle(entry.title)}\nEntry time: ${formatEntryTime(entry.created)}`,
     url: `${ENTRY_ROOT}${encodeURIComponent(entry.lognumber)}`
   });
@@ -783,26 +968,28 @@ async function testAuthorMatch() {
   const { watchedAuthors = [], monitoredBooks, enabledBooks } = await chrome.storage.local.get([
     "watchedAuthors", "monitoredBooks", "enabledBooks"
   ]);
-  const authorSet = new Set(watchedAuthors.map(normalizeAuthor).filter(Boolean));
-  if (!authorSet.size) throw new Error("Save at least one author first");
+  const watchedNameSet = new Set(watchedAuthors.map(normalizeAuthor).filter(Boolean));
+  if (!watchedNameSet.size) throw new Error("Save at least one name first");
   const activeBooks = normalizeEnabledBooks(enabledBooks, normalizeMonitoredBooks(monitoredBooks));
   if (!activeBooks.length) throw new Error("Turn on at least one logbook first");
 
   const entries = (await Promise.all(activeBooks.map((book) => fetchBook(book)))).flat();
   const match = entries
-    .filter((entry) => authorSet.has(normalizeAuthor(entry.author)))
-    .sort((a, b) => Number(b.lognumber) - Number(a.lognumber))[0];
+    .map((entry) => ({ entry, watchedMatches: findWatchedNameMatches(entry, watchedNameSet) }))
+    .filter(({ watchedMatches }) => watchedMatches.length)
+    .sort((a, b) => Number(b.entry.lognumber) - Number(a.entry.lognumber))[0];
 
   if (!match) {
-    throw new Error("No matching author was found within the configured check ranges of the enabled logbooks");
+    throw new Error("No matching Author or Entry Maker was found within the configured check ranges of the enabled logbooks");
   }
 
-  await showAuthorNotification(match);
+  const matchedEntry = { ...match.entry, watchedMatches: match.watchedMatches };
+  await showWatchedNameNotification(matchedEntry, false);
   return {
-    book: match.book,
-    lognumber: match.lognumber,
-    author: displayAuthor(match.author),
-    title: cleanTitle(match.title)
+    book: matchedEntry.book,
+    lognumber: matchedEntry.lognumber,
+    matchSummary: formatWatchedNameMatches(match.watchedMatches),
+    title: cleanTitle(matchedEntry.title)
   };
 }
 
@@ -814,7 +1001,7 @@ async function testCommentMatch() {
   const configuredBook = books.find((book) => match.bookSlugs?.includes(book.slug));
   match.book = configuredBook?.name || match.bookSlug?.toLocaleUpperCase() || "JLab";
 
-  await showCommentNotification({ ...match, added: 1 });
+  await showCommentNotification({ ...match, added: 1 }, false);
   return {
     book: match.book,
     commentId: match.commentId,
@@ -827,14 +1014,28 @@ async function testCommentMatch() {
 async function showSystemNotification(alert) {
   const notificationId = createNotificationInstanceId(alert.id);
   const isTest = alert.id === TEST_NOTIFICATION_ID;
-  const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
+  const recordHistory = !isTest && alert.recordHistory !== false;
+  const { pendingAlerts = {}, alertHistory = [] } = await chrome.storage.local.get([
+    "pendingAlerts", "alertHistory"
+  ]);
+  const createdAt = Date.now();
   pendingAlerts[notificationId] = {
     ...alert,
     id: notificationId,
     baseId: alert.id,
-    createdAt: Date.now()
+    createdAt
   };
-  await chrome.storage.local.set({ pendingAlerts });
+  const nextAlertHistory = recordHistory
+    ? [{
+        id: notificationId,
+        baseId: alert.id,
+        systemTitle: alert.systemTitle,
+        message: alert.message,
+        url: alert.url || "",
+        createdAt
+      }, ...normalizeAlertHistory(alertHistory)].slice(0, MAX_ALERT_HISTORY)
+    : normalizeAlertHistory(alertHistory);
+  await chrome.storage.local.set({ pendingAlerts, alertHistory: nextAlertHistory });
   await updateAlertBadge(pendingAlerts);
   await chrome.notifications.create(notificationId, {
     type: "basic",
@@ -848,6 +1049,14 @@ async function showSystemNotification(alert) {
       ? [{ title: "Clear" }]
       : [{ title: "Clear" }, { title: "Go to entry" }]
   });
+}
+
+function normalizeAlertHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item && typeof item.systemTitle === "string" && Number.isFinite(Number(item.createdAt)))
+    .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
+    .slice(0, MAX_ALERT_HISTORY);
 }
 
 function createNotificationInstanceId(baseId) {
@@ -889,6 +1098,58 @@ function normalizeAuthor(value) {
 function displayAuthor(value) {
   if (typeof value === "string" && value.trim()) return value.trim();
   return value?.name || value?.username || value?.value || "unknown author";
+}
+
+function extractEntryMakerNames(entry) {
+  const raw = entry?.entrymakers
+    ?? entry?.entryMakers
+    ?? entry?.entry_makers
+    ?? entry?.["Entry Makers"]
+    ?? "";
+  return extractNameList(raw);
+}
+
+function extractNameList(value, depth = 0) {
+  if (depth > 5 || value === null || typeof value === "undefined") return [];
+  if (typeof value === "string") {
+    return value
+      .split(/[,;\n]+/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(value)) return value.flatMap((item) => extractNameList(item, depth + 1));
+  if (typeof value === "object") {
+    for (const key of ["name", "username", "value", "content", "string"]) {
+      if (key in value) return extractNameList(value[key], depth + 1);
+    }
+  }
+  return [];
+}
+
+function findWatchedNameMatches(entry, watchedNameSet) {
+  if (!(watchedNameSet instanceof Set) || !watchedNameSet.size) return [];
+  const matches = [];
+  const authorKey = normalizeAuthor(entry?.author);
+  if (authorKey && watchedNameSet.has(authorKey)) {
+    matches.push({ role: "Author", name: displayAuthor(entry.author) });
+  }
+  for (const name of extractEntryMakerNames(entry)) {
+    const key = normalizeAuthor(name);
+    if (!key || !watchedNameSet.has(key)) continue;
+    if (!matches.some((match) => match.role === "Entry Maker" && normalizeAuthor(match.name) === key)) {
+      matches.push({ role: "Entry Maker", name });
+    }
+  }
+  return matches;
+}
+
+function formatWatchedNameMatches(matches) {
+  const authors = matches.filter((match) => match.role === "Author").map((match) => match.name);
+  const entryMakers = matches.filter((match) => match.role === "Entry Maker").map((match) => match.name);
+  return [
+    authors.length ? `Author: ${authors.join(", ")}` : "",
+    entryMakers.length ? `Entry ${entryMakers.length === 1 ? "Maker" : "Makers"}: ${entryMakers.join(", ")}` : ""
+  ].filter(Boolean).join(" · ");
 }
 
 function cleanTitle(value) {
@@ -936,7 +1197,10 @@ async function clearAllNotifications() {
 }
 
 function isMonitorNotification(id) {
-  return id.startsWith(NOTIFICATION_PREFIX) || id.startsWith(ENTRY_NOTIFICATION_PREFIX) || id.startsWith(EVENT_NOTIFICATION_PREFIX);
+  return id.startsWith(NOTIFICATION_PREFIX)
+    || id.startsWith(ENTRY_NOTIFICATION_PREFIX)
+    || id.startsWith(SHIFT_EDIT_NOTIFICATION_PREFIX)
+    || id.startsWith(EVENT_NOTIFICATION_PREFIX);
 }
 
 function isTestNotification(id) {
