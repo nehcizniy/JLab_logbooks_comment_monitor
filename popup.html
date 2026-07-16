@@ -31,6 +31,7 @@
         <li>Configure each logbook by entry count, hours, or days.</li>
         <li>Use each logbook's Shift summaries switch to control edit notifications.</li>
         <li>Turn off DTM recurring reminders to receive only event changes.</li>
+        <li>Email notifications require connecting a Gmail or Microsoft 365 account.</li>
         <li>Chrome must remain running for scheduled checks.</li>
       </ul>
     </section>
@@ -95,6 +96,57 @@
         </label>
       </div>
     </section>
+
+    <details class="email-controls">
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Email notifications</strong>
+          <small>Send every real alarm to one or more addresses</small>
+        </span>
+      </summary>
+      <div class="email-controls-body">
+        <div class="email-enabled-row">
+          <div>
+            <strong>Send alert emails</strong>
+            <span>System notifications continue when this is off</span>
+          </div>
+          <label class="small-switch" aria-label="Turn email notifications on or off">
+            <input id="email-enabled" type="checkbox">
+            <span class="small-slider"></span>
+          </label>
+        </div>
+
+        <label for="email-provider">Sending account</label>
+        <select id="email-provider">
+          <option value="gmail">Gmail</option>
+          <option value="microsoft">Outlook / Exchange Online</option>
+        </select>
+
+        <label for="email-recipients">Receiving addresses</label>
+        <textarea id="email-recipients" rows="3" placeholder="One address per line, or separate with commas"></textarea>
+
+        <section id="gmail-email-settings" class="email-provider-settings">
+          <p>Gmail uses the fixed extension ID <code id="gmail-extension-id"></code>. Add its free Google OAuth client ID to <code>manifest.json</code> before connecting.</p>
+        </section>
+
+        <section id="microsoft-email-settings" class="email-provider-settings" hidden>
+          <label for="microsoft-client-id">Microsoft Application (client) ID</label>
+          <input id="microsoft-client-id" type="text" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
+          <label for="microsoft-tenant">Tenant</label>
+          <input id="microsoft-tenant" type="text" autocomplete="off" placeholder="common">
+          <p>Register this SPA redirect URI: <code id="microsoft-redirect-uri"></code></p>
+        </section>
+
+        <p id="email-status" class="email-status" aria-live="polite">Email is not connected.</p>
+        <div class="email-actions">
+          <button id="save-email" type="button">Save</button>
+          <button id="connect-email" type="button">Connect sender</button>
+          <button id="disconnect-email" type="button">Disconnect</button>
+          <button id="test-email" type="button">Send test email</button>
+        </div>
+        <p class="email-privacy">OAuth only. The extension never asks for or stores your email password.</p>
+      </div>
+    </details>
 
     <details class="book-controls" open>
       <summary class="fold-summary">

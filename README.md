@@ -14,7 +14,7 @@ The popup includes a collapsible **Recent alarms** menu. It shows the five newes
 
 Each successful check also finds every entry whose title contains **shift summary** within the configured check range for each enabled logbook. The popup groups the matches by logbook and makes every listed entry a direct link. Every logbook group has its own **Edit alerts** switch, which is on by default. For each selected logbook, the extension monitors its newest matching entry and sends a system notification with **Clear** and **Go to entry** buttons if that same entry's title, body, attachments, tags, logbooks, Entry Makers, or attention state changes. Comment activity is excluded from the edit comparison. A newly posted shift summary establishes a new baseline and is not mistaken for an edit. Turning a logbook's switch back on first records a fresh baseline for that logbook, preventing alerts for edits made while its monitoring was off.
 
-The **Shift summaries**, **Monitored logbooks**, and **Notify for new entries by** sections are collapsible to keep the popup compact. Notification test controls are grouped at the bottom of the popup.
+The **Recent alarms**, **Shift summaries**, **Email notifications**, **Monitored logbooks**, and **Notify for new entries by** sections are collapsible to keep the popup compact. Notification test controls are grouped at the bottom of the popup.
 
 Select the small **?** button beside **Comment monitor** for a quick guide inside the popup.
 
@@ -40,9 +40,9 @@ After version 2.16.0, the fixed extension ID—not the folder location—identif
 
 ## Back up or restore settings
 
-Open **Settings backup** in the extension popup and choose **Export settings** to save the configured logbooks, check ranges, watch names, switches, and monitoring baselines to a JSON file. Choose **Import settings** to restore that file after reinstalling the extension, moving to another computer, or completing an extension-ID migration. Exported backups deliberately exclude active system notifications and temporary error/checking state.
+Open **Settings backup** in the extension popup and choose **Export settings** to save the configured logbooks, check ranges, watch names, switches, email recipients, and monitoring baselines to a JSON file. Choose **Import settings** to restore that file after reinstalling the extension, moving to another computer, or completing an extension-ID migration. Exported backups deliberately exclude active system notifications, temporary error/checking state, and OAuth access or refresh tokens.
 
-Keep the backup file private. It contains the extension's saved configuration and monitoring history. If a future version stores an email authorization token locally, that token may also be included so the account can be restored.
+Keep the backup file private. It contains the extension's saved configuration, receiving email addresses, and monitoring history. After restoring a backup, reconnect the sending account and then turn email notifications back on.
 
 ### One-time upgrade to the permanent ID
 
@@ -55,6 +55,40 @@ Versions before 2.16.0 used an ID based on the unpacked folder and require one m
 5. Click **Check now** and test a system notification. Remove an old-ID copy only after the fixed-ID copy is working.
 
 This migration happens once. Later unpacked updates retain the fixed ID and do not require another ID migration.
+
+## Email notifications
+
+The extension can send every real comment, watched-name entry, shift-summary edit, and DTM alarm to multiple receiving addresses. The extension does not impose an arbitrary recipient-count limit, although Gmail and Microsoft may enforce their own sending or recipient limits. System notifications continue to work when email delivery is off or encounters an error.
+
+Open **Email notifications**, select the sending provider, enter one or more receiving addresses separated by commas, spaces, semicolons, or new lines, and select **Save**. Connect the sender, use **Send test email**, and then turn on **Send alert emails**. Test notification, comment-match, and name-match controls do not send email; the dedicated test-email button does.
+
+Email authorization uses OAuth. **The extension does not ask for, read, or store your Gmail, Outlook, or Exchange password.** Gmail access tokens are managed by Chrome. Microsoft access and refresh tokens are stored in Chrome's local extension storage so scheduled checks can send while the popup is closed; these tokens are excluded from exported settings backups. Select **Disconnect** to remove the locally stored authorization. Removing the extension also removes its local tokens and configuration.
+
+### Gmail sender setup
+
+Gmail uses the [official Gmail API](https://developers.google.com/workspace/gmail/api/guides/sending) and requires a free Google Cloud OAuth client:
+
+1. Create or select a Google Cloud project, enable the Gmail API, and configure its OAuth consent screen.
+2. Create an OAuth client with application type **Chrome Extension**, following Chrome's [extension OAuth setup](https://developer.chrome.com/docs/extensions/how-to/integrate/oauth).
+3. Enter the permanent extension ID `gbfomjfeblcepcnmbohebdpndbfkcabj` as the Item ID.
+4. Replace `REPLACE_WITH_GOOGLE_CLIENT_ID.apps.googleusercontent.com` in `manifest.json` with the generated client ID, keeping the surrounding quotes.
+5. Reload the extension from `chrome://extensions`, open **Email notifications**, select **Gmail**, and choose **Connect sender**.
+
+The manifest requests only `gmail.send` and the email-address identity scope. An unverified external Google OAuth application can be limited to explicitly added test users; broader external distribution may require Google's OAuth verification. This is separate from Chrome Web Store registration and does not require paying the Chrome Web Store fee.
+
+### Outlook or Exchange Online sender setup
+
+Microsoft personal Outlook accounts and Microsoft 365/Exchange Online work through [Microsoft Graph](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0):
+
+1. Create a free Microsoft Entra app registration and allow the account types that should use the extension. The extension uses Microsoft's [authorization-code flow with PKCE](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow).
+2. Add a **Single-page application (SPA)** redirect URI: `https://gbfomjfeblcepcnmbohebdpndbfkcabj.chromiumapp.org/microsoft`.
+3. Add delegated Microsoft Graph permissions `Mail.Send` and `User.Read`. The sign-in flow also requests `offline_access` so automatic checks can renew access.
+4. Copy the Application (client) ID into the extension. Leave **Tenant** as `common` for personal and organizational Microsoft accounts, or enter a specific tenant ID/domain when required.
+5. Select **Connect sender**, complete Microsoft sign-in and consent, and send a test email.
+
+Some organizations require an administrator to approve `Mail.Send`. This option covers Exchange Online. On-premises Exchange requires a separately operated SMTP/EWS backend and is not supported directly by the browser extension.
+
+Microsoft classifies this browser flow as a SPA flow. Its refresh-token lifetime is approximately 24 hours, so Microsoft may periodically require selecting **Connect sender** again. The extension reports that condition without interrupting system notifications.
 
 ## Uninstall
 

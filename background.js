@@ -1,3 +1,5 @@
+importScripts("email.js");
+
 const CHECK_ALARM = "jlab-comment-check";
 const DEFAULT_CHECK_INTERVAL_MINUTES = 5;
 const CHECK_INTERVAL_OPTIONS = [5, 10, 15, 30, 60];
@@ -28,7 +30,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "entryLimit", "commentCounts", "watchedAuthors",
     "pageEventStates", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
-    "shiftSummaryFingerprints", "alertHistory"
+    "shiftSummaryFingerprints", "alertHistory", "emailConfig"
   ]);
   const updates = {};
   if (typeof current.enabled !== "boolean") updates.enabled = true;
@@ -58,6 +60,9 @@ chrome.runtime.onInstalled.addListener(async () => {
     updates.shiftSummaryFingerprints = {};
   }
   if (!Array.isArray(current.alertHistory)) updates.alertHistory = [];
+  if (!current.emailConfig || typeof current.emailConfig !== "object") {
+    updates.emailConfig = normalizeEmailConfig(null);
+  }
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
   await syncAlarm();
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
@@ -128,6 +133,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     Promise.all([syncAlarm(), updateAlertBadge({})])
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "connect-email") {
+    connectEmailProvider()
+      .then((auth) => sendResponse({ ok: true, auth }))
+      .catch(async (error) => {
+        const messageText = await recordEmailFailure(error);
+        sendResponse({ ok: false, error: messageText });
+      });
+    return true;
+  }
+  if (message?.type === "disconnect-email") {
+    disconnectEmailProvider()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: describeEmailError(error) }));
+    return true;
+  }
+  if (message?.type === "test-email") {
+    testEmailDelivery()
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch(async (error) => {
+        const messageText = await recordEmailFailure(error);
+        sendResponse({ ok: false, error: messageText });
+      });
     return true;
   }
   return false;
@@ -1049,6 +1078,9 @@ async function showSystemNotification(alert) {
       ? [{ title: "Clear" }]
       : [{ title: "Clear" }, { title: "Go to entry" }]
   });
+  if (recordHistory) {
+    await sendAlertEmail(alert).catch(recordEmailFailure);
+  }
 }
 
 function normalizeAlertHistory(value) {

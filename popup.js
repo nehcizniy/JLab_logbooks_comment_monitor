@@ -35,15 +35,35 @@ const settingsBackupStatus = document.querySelector("#settings-backup-status");
 const extensionId = document.querySelector("#extension-id");
 const recentAlarmsList = document.querySelector("#recent-alarms-list");
 const expandAlarmsButton = document.querySelector("#expand-alarms");
+const emailEnabledInput = document.querySelector("#email-enabled");
+const emailProviderInput = document.querySelector("#email-provider");
+const emailRecipientsInput = document.querySelector("#email-recipients");
+const gmailEmailSettings = document.querySelector("#gmail-email-settings");
+const microsoftEmailSettings = document.querySelector("#microsoft-email-settings");
+const microsoftClientIdInput = document.querySelector("#microsoft-client-id");
+const microsoftTenantInput = document.querySelector("#microsoft-tenant");
+const gmailExtensionId = document.querySelector("#gmail-extension-id");
+const microsoftRedirectUri = document.querySelector("#microsoft-redirect-uri");
+const emailStatus = document.querySelector("#email-status");
+const saveEmailButton = document.querySelector("#save-email");
+const connectEmailButton = document.querySelector("#connect-email");
+const disconnectEmailButton = document.querySelector("#disconnect-email");
+const testEmailButton = document.querySelector("#test-email");
 let authorsLoaded = false;
 let recentAlarmLimit = 5;
+let emailConfigLoaded = false;
 
 const SETTINGS_BACKUP_FORMAT = "jlab-logbook-comment-monitor-backup";
 const SETTINGS_BACKUP_VERSION = 1;
-const TRANSIENT_STORAGE_KEYS = new Set(["checking", "lastError", "shiftSummaryEditError", "pendingAlerts"]);
+const TRANSIENT_STORAGE_KEYS = new Set([
+  "checking", "lastError", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
+  "lastEmailError", "lastEmailAttempt", "lastEmailSentAt"
+]);
 
 extensionVersion.textContent = chrome.runtime.getManifest().version;
 extensionId.textContent = chrome.runtime.id;
+gmailExtensionId.textContent = chrome.runtime.id;
+microsoftRedirectUri.textContent = chrome.identity.getRedirectURL("microsoft");
 
 helpButton.addEventListener("click", () => {
   const willOpen = helpPanel.hidden;
@@ -79,6 +99,35 @@ expandAlarmsButton.addEventListener("click", async () => {
   const { alertHistory = [] } = await chrome.storage.local.get("alertHistory");
   renderRecentAlarms(alertHistory);
 });
+emailProviderInput.addEventListener("change", async () => {
+  renderEmailProviderSettings();
+  if (emailEnabledInput.checked) {
+    emailEnabledInput.checked = false;
+    await saveEmailConfig({ quiet: true });
+    emailStatus.textContent = "Email alerts were turned off. Connect the selected sender before turning them back on.";
+    emailStatus.className = "email-status";
+  }
+  await setEmailButtonsBusy(false);
+});
+emailEnabledInput.addEventListener("change", async () => {
+  try {
+    await saveEmailConfig({ quiet: true });
+    emailStatus.textContent = emailEnabledInput.checked
+      ? "Email notifications turned on."
+      : "Email notifications turned off.";
+    emailStatus.className = emailEnabledInput.checked
+      ? "email-status connected"
+      : "email-status";
+  } catch (error) {
+    emailEnabledInput.checked = false;
+    emailStatus.textContent = error.message;
+    emailStatus.className = "email-status error";
+  }
+});
+saveEmailButton.addEventListener("click", () => saveEmailConfig());
+connectEmailButton.addEventListener("click", connectEmailSender);
+disconnectEmailButton.addEventListener("click", disconnectEmailSender);
+testEmailButton.addEventListener("click", sendTestEmail);
 
 addBookButton.addEventListener("click", addBook);
 bookUrlInput.addEventListener("keydown", (event) => {
@@ -231,11 +280,15 @@ async function importSettings() {
     const restoredStorage = Object.fromEntries(
       Object.entries(backup.storage).filter(([key]) => !TRANSIENT_STORAGE_KEYS.has(key))
     );
+    if (restoredStorage.emailConfig && typeof restoredStorage.emailConfig === "object") {
+      restoredStorage.emailConfig = { ...restoredStorage.emailConfig, enabled: false };
+    }
     await chrome.storage.local.clear();
     await chrome.storage.local.set({ ...restoredStorage, checking: false, lastError: "", pendingAlerts: {} });
     await chrome.runtime.sendMessage({ type: "settings-restored" });
     authorsLoaded = false;
-    settingsBackupStatus.textContent = "Settings restored successfully.";
+    emailConfigLoaded = false;
+    settingsBackupStatus.textContent = "Settings restored. Reconnect the email sender before turning email alerts on.";
     await render();
   } catch (error) {
     settingsBackupStatus.textContent = `Import failed: ${error.message}`;
@@ -265,7 +318,8 @@ async function render() {
   const state = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "checking", "initialized", "lastCheck", "lastError", "trackedEntries", "watchedAuthors",
     "lastDetectedEvents", "bookDiagnostics", "commentCursor", "shiftSummariesByBook", "repeatDtmAlerts",
-    "shiftSummaryEditEnabledBooks", "shiftSummaryEditError", "alertHistory"
+    "shiftSummaryEditEnabledBooks", "shiftSummaryEditError", "alertHistory", "emailConfig", "emailAuth",
+    "lastEmailError", "lastEmailSentAt"
   ]);
   const enabled = state.enabled !== false;
   const monitoredBooks = normalizeMonitoredBooks(state.monitoredBooks);
@@ -291,6 +345,7 @@ async function render() {
     state.shiftSummaryEditError
   );
   renderRecentAlarms(state.alertHistory);
+  renderEmailControls(state);
   if (!authorsLoaded) {
     const authors = Array.isArray(state.watchedAuthors) ? state.watchedAuthors : [];
     authorsInput.value = authors.join("\n");
@@ -329,6 +384,174 @@ async function render() {
   }
 
   renderDiagnostics(state.bookDiagnostics, monitoredBooks, enabledBookSlugs);
+}
+
+function renderEmailControls(state) {
+  const config = normalizeEmailConfigForPopup(state.emailConfig);
+  if (!emailConfigLoaded) {
+    emailEnabledInput.checked = config.enabled;
+    emailProviderInput.value = config.provider;
+    emailRecipientsInput.value = config.recipients.join("\n");
+    microsoftClientIdInput.value = config.microsoftClientId;
+    microsoftTenantInput.value = config.microsoftTenant;
+    emailConfigLoaded = true;
+  }
+  renderEmailProviderSettings();
+
+  const auth = state.emailAuth && typeof state.emailAuth === "object" ? state.emailAuth : {};
+  const providerLabel = auth.provider === "microsoft" ? "Microsoft 365 / Exchange Online" : "Gmail";
+  const matchesSelectedProvider = auth.provider === emailProviderInput.value;
+  if (state.lastEmailError) {
+    emailStatus.textContent = `Email needs attention: ${state.lastEmailError}`;
+    emailStatus.className = "email-status error";
+  } else if (auth.provider && matchesSelectedProvider) {
+    const sentText = state.lastEmailSentAt
+      ? ` · Last sent ${new Date(state.lastEmailSentAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+      : "";
+    emailStatus.textContent = `Connected to ${auth.accountEmail || providerLabel}${sentText}`;
+    emailStatus.className = "email-status connected";
+  } else if (auth.provider) {
+    emailStatus.textContent = `${providerLabel} is connected, but a different sender is selected.`;
+    emailStatus.className = "email-status";
+  } else {
+    emailStatus.textContent = "Email sender is not connected.";
+    emailStatus.className = "email-status";
+  }
+  disconnectEmailButton.disabled = !auth.provider;
+  testEmailButton.disabled = !matchesSelectedProvider;
+}
+
+function renderEmailProviderSettings() {
+  const isMicrosoft = emailProviderInput.value === "microsoft";
+  gmailEmailSettings.hidden = isMicrosoft;
+  microsoftEmailSettings.hidden = !isMicrosoft;
+}
+
+async function saveEmailConfig(options = {}) {
+  const config = readEmailConfigForm(options.requireRecipients === true);
+  if (config.enabled) {
+    const { emailAuth = {} } = await chrome.storage.local.get("emailAuth");
+    if (emailAuth.provider !== config.provider) {
+      throw new Error("Connect the selected sending account before turning on email alerts");
+    }
+  }
+  await chrome.storage.local.set({ emailConfig: config, lastEmailError: "" });
+  if (!options.quiet) {
+    saveEmailButton.textContent = "Saved";
+    emailStatus.textContent = `Saved ${config.recipients.length} receiving ${config.recipients.length === 1 ? "address" : "addresses"}.`;
+    setTimeout(() => { saveEmailButton.textContent = "Save"; }, 900);
+  }
+  return config;
+}
+
+async function connectEmailSender() {
+  await setEmailButtonsBusy(true);
+  connectEmailButton.textContent = "Connecting…";
+  try {
+    await saveEmailConfig({ quiet: true });
+    const result = await chrome.runtime.sendMessage({ type: "connect-email" });
+    if (!result?.ok) throw new Error(result?.error || "Could not connect the sending account");
+    emailStatus.textContent = `Connected to ${result.auth.accountEmail || "sending account"}.`;
+    await render();
+  } catch (error) {
+    emailStatus.textContent = error.message;
+    emailStatus.className = "email-status error";
+  } finally {
+    connectEmailButton.textContent = "Connect sender";
+    await setEmailButtonsBusy(false);
+  }
+}
+
+async function disconnectEmailSender() {
+  await setEmailButtonsBusy(true);
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "disconnect-email" });
+    if (!result?.ok) throw new Error(result?.error || "Could not disconnect the sending account");
+    emailEnabledInput.checked = false;
+    const config = readEmailConfigForm(false);
+    await chrome.storage.local.set({ emailConfig: { ...config, enabled: false } });
+    emailStatus.textContent = "Email sender disconnected.";
+    await render();
+  } catch (error) {
+    emailStatus.textContent = error.message;
+    emailStatus.className = "email-status error";
+  } finally {
+    await setEmailButtonsBusy(false);
+  }
+}
+
+async function sendTestEmail() {
+  await setEmailButtonsBusy(true);
+  testEmailButton.textContent = "Sending…";
+  try {
+    await saveEmailConfig({ quiet: true, requireRecipients: true });
+    const result = await chrome.runtime.sendMessage({ type: "test-email" });
+    if (!result?.ok) throw new Error(result?.error || "Test email failed");
+    emailStatus.textContent = `Test email sent to ${result.result.recipients} ${result.result.recipients === 1 ? "address" : "addresses"}.`;
+    emailStatus.className = "email-status connected";
+  } catch (error) {
+    emailStatus.textContent = error.message;
+    emailStatus.className = "email-status error";
+  } finally {
+    testEmailButton.textContent = "Send test email";
+    await setEmailButtonsBusy(false);
+  }
+}
+
+async function setEmailButtonsBusy(busy) {
+  if (busy) {
+    saveEmailButton.disabled = true;
+    connectEmailButton.disabled = true;
+    disconnectEmailButton.disabled = true;
+    testEmailButton.disabled = true;
+    return;
+  }
+  const { emailAuth = {} } = await chrome.storage.local.get("emailAuth");
+  saveEmailButton.disabled = false;
+  connectEmailButton.disabled = false;
+  disconnectEmailButton.disabled = !emailAuth.provider;
+  testEmailButton.disabled = emailAuth.provider !== emailProviderInput.value;
+}
+
+function readEmailConfigForm(requireRecipients) {
+  const rawAddresses = emailRecipientsInput.value
+    .split(/[\s,;]+/)
+    .map((address) => address.trim())
+    .filter(Boolean);
+  const invalidAddresses = rawAddresses.filter((address) => !isValidEmailAddressForPopup(address));
+  if (invalidAddresses.length) throw new Error(`Invalid receiving address: ${invalidAddresses[0]}`);
+  const seenAddresses = new Set();
+  const recipients = rawAddresses.filter((address) => {
+    const normalized = address.toLocaleLowerCase();
+    if (seenAddresses.has(normalized)) return false;
+    seenAddresses.add(normalized);
+    return true;
+  });
+  if ((requireRecipients || emailEnabledInput.checked) && !recipients.length) {
+    throw new Error("Add at least one receiving address");
+  }
+  return {
+    enabled: emailEnabledInput.checked,
+    provider: emailProviderInput.value === "microsoft" ? "microsoft" : "gmail",
+    recipients,
+    microsoftClientId: microsoftClientIdInput.value.trim(),
+    microsoftTenant: microsoftTenantInput.value.trim() || "common"
+  };
+}
+
+function normalizeEmailConfigForPopup(value) {
+  const config = value && typeof value === "object" ? value : {};
+  return {
+    enabled: config.enabled === true,
+    provider: config.provider === "microsoft" ? "microsoft" : "gmail",
+    recipients: Array.isArray(config.recipients) ? config.recipients.map(String) : [],
+    microsoftClientId: String(config.microsoftClientId || ""),
+    microsoftTenant: String(config.microsoftTenant || "common") || "common"
+  };
+}
+
+function isValidEmailAddressForPopup(value) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(value || ""));
 }
 
 function renderRecentAlarms(value) {
