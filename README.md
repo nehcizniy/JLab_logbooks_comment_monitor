@@ -14,7 +14,7 @@ The popup includes a collapsible **Recent alarms** menu. It shows the five newes
 
 Each successful check also finds every entry whose title contains **shift summary** within the configured check range for each enabled logbook. The popup groups the matches by logbook and makes every listed entry a direct link. Every logbook group has its own **Edit alerts** switch, which is on by default. For each selected logbook, the extension monitors its newest matching entry and sends a system notification with **Clear** and **Go to entry** buttons if that same entry's title, body, attachments, tags, logbooks, Entry Makers, or attention state changes. Comment activity is excluded from the edit comparison. A newly posted shift summary establishes a new baseline and is not mistaken for an edit. Turning a logbook's switch back on first records a fresh baseline for that logbook, preventing alerts for edits made while its monitoring was off.
 
-The **Recent alarms**, **Shift summaries**, **Email notifications**, **Monitored logbooks**, and **Notify for new entries by** sections are collapsible to keep the popup compact. Notification test controls are grouped at the bottom of the popup.
+The **Recent alarms**, **Shift Crew**, **Shift summaries**, **Email notifications**, **Monitored logbooks**, and **Notify for new entries by** sections are collapsible to keep the popup compact. Notification test controls are grouped at the bottom of the popup.
 
 Select the small **?** button beside **Comment monitor** for a quick guide inside the popup.
 
@@ -40,7 +40,7 @@ After version 2.16.0, the fixed extension ID—not the folder location—identif
 
 ## Back up or restore settings
 
-Open **Settings backup** in the extension popup and choose **Export settings** to save the configured logbooks, check ranges, watch names, switches, email recipients, and monitoring baselines to a JSON file. Choose **Import settings** to restore that file after reinstalling the extension, moving to another computer, or completing an extension-ID migration. Exported backups deliberately exclude active system notifications, temporary error/checking state, and OAuth access or refresh tokens.
+Open **Settings backup** in the extension popup and choose **Export settings** to save the configured logbooks, check ranges, watch names, switches, shift-schedule URLs, email recipients, and monitoring baselines to a JSON file. Choose **Import settings** to restore that file after reinstalling the extension, moving to another computer, or completing an extension-ID migration. Exported backups deliberately exclude active system notifications, temporary error/checking state, and OAuth access or refresh tokens.
 
 Keep the backup file private. It contains the extension's saved configuration, receiving email addresses, and monitoring history. After restoring a backup, reconnect the sending account and then turn email notifications back on.
 
@@ -55,6 +55,35 @@ Versions before 2.16.0 used an ID based on the unpacked folder and require one m
 5. Click **Check now** and test a system notification. Remove an old-ID copy only after the fixed-ID copy is working.
 
 This migration happens once. Later unpacked updates retain the fixed ID and do not require another ID migration.
+
+## Shift Crew
+
+The collapsible **Shift Crew** section sits between **Recent alarms** and **Shift summaries**. It provides one schedule-URL field for each of Hall A, Hall B, Hall C, and Hall D. Paste a supported public JLab shift-schedule URL into the appropriate hall and select **Enter**. A successful Enter saves the URLs, checks the schedules, and folds the section. Blank halls remain blank. The extension then refreshes every configured URL once per day, independently of the main logbook-monitor switch. **Check now** also refreshes the configured schedules.
+
+When **Shift Crew** is folded, hover over or keyboard-focus its heading to display a floating card aligned to the right side of the popup. The card shows the crew scheduled for the current time using JLab local time. Select a configured Hall A, B, C, or D name in either the expanded section or floating card to open that hall's schedule. The daily check stores the day's schedule, so the displayed crew changes at the schedule's shift boundaries without downloading the page again.
+
+Supported Hall A MIS example:
+
+- `https://misportal.jlab.org/mis/physics/shiftSchedule/?experimentRunId=GEn-RP_KLL`
+
+Supported Hall C examples include:
+
+- `https://misportal.jlab.org/mis/physics/shiftSchedule/index.cfm?experimentRunId=HALLC-RSIDIS`
+- `https://misportal.jlab.org/mis/physics/shiftSchedule/index.cfm?experimentRunId=HALLC-PIONCT`
+
+The Hall B PRad schedule is also supported:
+
+- `https://www.jlab.org/Hall-B/pradshifts/`
+
+For Hall B, the extension reads the dated schedule table—not the page's separate **Current shift status** section. It applies the table's actual Expert boundaries (00:00–08:00, 08:00–16:00, and 16:00–24:00) and Worker boundaries (23:00–07:00, 07:00–15:00, and 15:00–23:00). Before 07:00, the Worker Owl assignment comes from the previous date's row; from 23:00 onward, it comes from the current date's row.
+
+The Hall D GlueX schedule is also supported:
+
+- `https://www.jlab.org/Hall-D/shifts/`
+
+For Hall D, the extension also reads only the dated schedule table. It applies the listed Leader boundaries (00:00–08:00, 08:00–16:00, and 16:00–24:00) and Worker boundaries (20:00–04:00, 04:00–12:00, and 12:00–20:00). Before 04:00, the Worker Night Club assignment comes from the previous date's row. The separate current-shift display and Run Coordinator column are not used.
+
+Only the supported public HTTPS JLab MIS, Hall B PRad, and Hall D GlueX schedule formats are accepted. Shift Crew does not request or use a JLab password.
 
 ## Email notifications
 

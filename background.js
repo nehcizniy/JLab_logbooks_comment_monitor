@@ -1,4 +1,4 @@
-importScripts("email.js");
+importScripts("email.js", "shift-crew.js");
 
 const CHECK_ALARM = "jlab-comment-check";
 const DEFAULT_CHECK_INTERVAL_MINUTES = 5;
@@ -30,7 +30,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "entryLimit", "commentCounts", "watchedAuthors",
     "pageEventStates", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
-    "shiftSummaryFingerprints", "alertHistory", "emailConfig"
+    "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState"
   ]);
   const updates = {};
   if (typeof current.enabled !== "boolean") updates.enabled = true;
@@ -63,34 +63,41 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!current.emailConfig || typeof current.emailConfig !== "object") {
     updates.emailConfig = normalizeEmailConfig(null);
   }
+  updates.shiftCrewSchedules = normalizeShiftCrewSchedules(current.shiftCrewSchedules);
+  if (!current.shiftCrewState || typeof current.shiftCrewState !== "object") updates.shiftCrewState = {};
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
-  await syncAlarm();
+  await Promise.all([syncAlarm(), syncShiftCrewAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
-  await checkForComments();
+  await Promise.all([checkForComments(), checkShiftCrewSchedulesIfDue(true)]);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  await syncAlarm();
+  await Promise.all([syncAlarm(), syncShiftCrewAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
   const { enabled = true } = await chrome.storage.local.get("enabled");
-  if (enabled) await checkForComments();
+  await Promise.all([
+    enabled ? checkForComments() : Promise.resolve(),
+    checkShiftCrewSchedulesIfDue()
+  ]);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === CHECK_ALARM) checkForComments();
+  if (alarm.name === SHIFT_CREW_ALARM) checkShiftCrewSchedules();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabled || changes.intervalMinutes || changes.enabledBooks || changes.monitoredBooks) syncAlarm();
+  if (changes.shiftCrewSchedules) syncShiftCrewAlarm();
   if (changes.enabledBooks) handleEnabledBooksChange(changes.enabledBooks);
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "check-now") {
-    checkForComments()
+    Promise.all([checkForComments(), checkShiftCrewSchedules()])
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -130,9 +137,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "settings-restored") {
-    Promise.all([syncAlarm(), updateAlertBadge({})])
+    Promise.all([syncAlarm(), syncShiftCrewAlarm(), updateAlertBadge({}), checkShiftCrewSchedulesIfDue(true)])
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "save-shift-crew-schedules") {
+    saveAndCheckShiftCrewSchedules(message.schedules)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: describeShiftCrewError(error) }));
+    return true;
+  }
+  if (message?.type === "refresh-shift-crew-if-due") {
+    checkShiftCrewSchedulesIfDue()
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: describeShiftCrewError(error) }));
     return true;
   }
   if (message?.type === "connect-email") {

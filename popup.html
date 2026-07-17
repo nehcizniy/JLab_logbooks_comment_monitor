@@ -28,6 +28,7 @@
         <li>Use the top switch to start or pause automatic checks.</li>
         <li>Use Check now for an immediate scan.</li>
         <li>Open Recent alarms to review and reopen the latest alerts.</li>
+        <li>Add public JLab schedule URLs under Shift Crew to see the current Hall A–D workers.</li>
         <li>Configure each logbook by entry count, hours, or days.</li>
         <li>Use each logbook's Shift summaries switch to control edit notifications.</li>
         <li>Turn off DTM recurring reminders to receive only event changes.</li>
@@ -59,6 +60,48 @@
       <div class="recent-alarms-body">
         <div id="recent-alarms-list" class="recent-alarms-list"></div>
         <button id="expand-alarms" class="expand-alarms" type="button" hidden>Show up to 20</button>
+      </div>
+    </details>
+
+    <details id="shift-crew-details" class="shift-crew-card">
+      <summary class="fold-summary shift-crew-summary">
+        <span class="fold-summary-copy">
+          <strong>Shift Crew</strong>
+          <small>Hall A–D current workers · checked daily</small>
+        </span>
+        <aside class="shift-crew-hover-card">
+          <strong>Current shift crew</strong>
+          <small>JLab local time</small>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-a">Hall A</a><span id="shift-crew-hover-hall-a"></span></div>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-b">Hall B</a><span id="shift-crew-hover-hall-b"></span></div>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-c">Hall C</a><span id="shift-crew-hover-hall-c"></span></div>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-d">Hall D</a><span id="shift-crew-hover-hall-d"></span></div>
+        </aside>
+      </summary>
+      <div class="shift-crew-body">
+        <p>Paste one public JLab shift-schedule URL for each hall you want to display. Leave a hall blank to hide its crew.</p>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-a">Hall A</a>
+          <input id="shift-crew-url-hall-a" type="url" aria-label="Hall A shift-schedule URL" placeholder="https://misportal.jlab.org/…">
+          <small id="shift-crew-current-hall-a"></small>
+        </div>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-b">Hall B</a>
+          <input id="shift-crew-url-hall-b" type="url" aria-label="Hall B shift-schedule URL" placeholder="https://www.jlab.org/Hall-B/…">
+          <small id="shift-crew-current-hall-b"></small>
+        </div>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-c">Hall C</a>
+          <input id="shift-crew-url-hall-c" type="url" aria-label="Hall C shift-schedule URL" placeholder="https://misportal.jlab.org/…">
+          <small id="shift-crew-current-hall-c"></small>
+        </div>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-d">Hall D</a>
+          <input id="shift-crew-url-hall-d" type="url" aria-label="Hall D shift-schedule URL" placeholder="https://www.jlab.org/Hall-D/…">
+          <small id="shift-crew-current-hall-d"></small>
+        </div>
+        <button id="save-shift-crew" type="button">Enter</button>
+        <span id="shift-crew-status" class="shift-crew-status" aria-live="polite"></span>
       </div>
     </details>
 

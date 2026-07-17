@@ -35,6 +35,40 @@ const settingsBackupStatus = document.querySelector("#settings-backup-status");
 const extensionId = document.querySelector("#extension-id");
 const recentAlarmsList = document.querySelector("#recent-alarms-list");
 const expandAlarmsButton = document.querySelector("#expand-alarms");
+const saveShiftCrewButton = document.querySelector("#save-shift-crew");
+const shiftCrewDetails = document.querySelector("#shift-crew-details");
+const shiftCrewStatus = document.querySelector("#shift-crew-status");
+const SHIFT_CREW_HALLS = ["hallA", "hallB", "hallC", "hallD"];
+const SHIFT_CREW_INPUTS = {
+  hallA: document.querySelector("#shift-crew-url-hall-a"),
+  hallB: document.querySelector("#shift-crew-url-hall-b"),
+  hallC: document.querySelector("#shift-crew-url-hall-c"),
+  hallD: document.querySelector("#shift-crew-url-hall-d")
+};
+const SHIFT_CREW_CURRENT = {
+  hallA: document.querySelector("#shift-crew-current-hall-a"),
+  hallB: document.querySelector("#shift-crew-current-hall-b"),
+  hallC: document.querySelector("#shift-crew-current-hall-c"),
+  hallD: document.querySelector("#shift-crew-current-hall-d")
+};
+const SHIFT_CREW_LINKS = {
+  hallA: document.querySelector("#shift-crew-link-hall-a"),
+  hallB: document.querySelector("#shift-crew-link-hall-b"),
+  hallC: document.querySelector("#shift-crew-link-hall-c"),
+  hallD: document.querySelector("#shift-crew-link-hall-d")
+};
+const SHIFT_CREW_HOVER = {
+  hallA: document.querySelector("#shift-crew-hover-hall-a"),
+  hallB: document.querySelector("#shift-crew-hover-hall-b"),
+  hallC: document.querySelector("#shift-crew-hover-hall-c"),
+  hallD: document.querySelector("#shift-crew-hover-hall-d")
+};
+const SHIFT_CREW_HOVER_LINKS = {
+  hallA: document.querySelector("#shift-crew-hover-link-hall-a"),
+  hallB: document.querySelector("#shift-crew-hover-link-hall-b"),
+  hallC: document.querySelector("#shift-crew-hover-link-hall-c"),
+  hallD: document.querySelector("#shift-crew-hover-link-hall-d")
+};
 const emailEnabledInput = document.querySelector("#email-enabled");
 const emailProviderInput = document.querySelector("#email-provider");
 const emailRecipientsInput = document.querySelector("#email-recipients");
@@ -52,12 +86,14 @@ const testEmailButton = document.querySelector("#test-email");
 let authorsLoaded = false;
 let recentAlarmLimit = 5;
 let emailConfigLoaded = false;
+let shiftCrewConfigLoaded = false;
 
 const SETTINGS_BACKUP_FORMAT = "jlab-logbook-comment-monitor-backup";
 const SETTINGS_BACKUP_VERSION = 1;
 const TRANSIENT_STORAGE_KEYS = new Set([
   "checking", "lastError", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
-  "lastEmailError", "lastEmailAttempt", "lastEmailSentAt"
+  "lastEmailError", "lastEmailAttempt", "lastEmailSentAt", "shiftCrewState",
+  "shiftCrewChecking", "shiftCrewError", "lastShiftCrewCheck"
 ]);
 
 extensionVersion.textContent = chrome.runtime.getManifest().version;
@@ -99,6 +135,17 @@ expandAlarmsButton.addEventListener("click", async () => {
   const { alertHistory = [] } = await chrome.storage.local.get("alertHistory");
   renderRecentAlarms(alertHistory);
 });
+saveShiftCrewButton.addEventListener("click", saveShiftCrewSchedules);
+for (const input of Object.values(SHIFT_CREW_INPUTS)) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (!saveShiftCrewButton.disabled) saveShiftCrewSchedules();
+  });
+}
+for (const link of Object.values(SHIFT_CREW_HOVER_LINKS)) {
+  link.addEventListener("click", (event) => event.stopPropagation());
+}
 emailProviderInput.addEventListener("change", async () => {
   renderEmailProviderSettings();
   if (emailEnabledInput.checked) {
@@ -212,6 +259,7 @@ testAuthorButton.addEventListener("click", async () => {
 
 chrome.storage.onChanged.addListener(() => render());
 render();
+chrome.runtime.sendMessage({ type: "refresh-shift-crew-if-due" }).catch(() => {});
 
 async function addBook() {
   const value = bookUrlInput.value.trim();
@@ -288,6 +336,7 @@ async function importSettings() {
     await chrome.runtime.sendMessage({ type: "settings-restored" });
     authorsLoaded = false;
     emailConfigLoaded = false;
+    shiftCrewConfigLoaded = false;
     settingsBackupStatus.textContent = "Settings restored. Reconnect the email sender before turning email alerts on.";
     await render();
   } catch (error) {
@@ -319,7 +368,8 @@ async function render() {
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "checking", "initialized", "lastCheck", "lastError", "trackedEntries", "watchedAuthors",
     "lastDetectedEvents", "bookDiagnostics", "commentCursor", "shiftSummariesByBook", "repeatDtmAlerts",
     "shiftSummaryEditEnabledBooks", "shiftSummaryEditError", "alertHistory", "emailConfig", "emailAuth",
-    "lastEmailError", "lastEmailSentAt"
+    "lastEmailError", "lastEmailSentAt", "shiftCrewSchedules", "shiftCrewState", "shiftCrewChecking",
+    "shiftCrewError", "lastShiftCrewCheck"
   ]);
   const enabled = state.enabled !== false;
   const monitoredBooks = normalizeMonitoredBooks(state.monitoredBooks);
@@ -345,6 +395,7 @@ async function render() {
     state.shiftSummaryEditError
   );
   renderRecentAlarms(state.alertHistory);
+  renderShiftCrewControls(state);
   renderEmailControls(state);
   if (!authorsLoaded) {
     const authors = Array.isArray(state.watchedAuthors) ? state.watchedAuthors : [];
@@ -552,6 +603,155 @@ function normalizeEmailConfigForPopup(value) {
 
 function isValidEmailAddressForPopup(value) {
   return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(value || ""));
+}
+
+async function saveShiftCrewSchedules() {
+  const schedules = Object.fromEntries(
+    SHIFT_CREW_HALLS.map((hall) => [hall, SHIFT_CREW_INPUTS[hall].value.trim()])
+  );
+  saveShiftCrewButton.disabled = true;
+  saveShiftCrewButton.textContent = "Checking…";
+  shiftCrewStatus.textContent = "Saving URLs and checking the configured schedules…";
+  shiftCrewStatus.className = "shift-crew-status";
+  shiftCrewDetails.open = false;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "save-shift-crew-schedules", schedules });
+    if (!result?.ok) throw new Error(result?.error || "The shift schedules could not be checked");
+    shiftCrewConfigLoaded = false;
+    await render();
+    shiftCrewDetails.open = false;
+    if (!result.result?.error) {
+      shiftCrewStatus.textContent = Object.values(schedules).some(Boolean)
+        ? "Schedule URLs saved and checked."
+        : "All shift-schedule URLs cleared.";
+    }
+  } catch (error) {
+    shiftCrewDetails.open = true;
+    shiftCrewStatus.textContent = error.message;
+    shiftCrewStatus.className = "shift-crew-status error";
+  } finally {
+    saveShiftCrewButton.disabled = false;
+    saveShiftCrewButton.textContent = "Enter";
+  }
+}
+
+function renderShiftCrewControls(state) {
+  const schedules = normalizeShiftCrewSchedulesForPopup(state.shiftCrewSchedules);
+  if (!shiftCrewConfigLoaded) {
+    for (const hall of SHIFT_CREW_HALLS) SHIFT_CREW_INPUTS[hall].value = schedules[hall];
+    shiftCrewConfigLoaded = true;
+  }
+
+  for (const hall of SHIFT_CREW_HALLS) {
+    const display = formatCurrentShiftCrew(schedules[hall], state.shiftCrewState?.[hall]);
+    configureShiftCrewLink(SHIFT_CREW_LINKS[hall], schedules[hall]);
+    configureShiftCrewLink(SHIFT_CREW_HOVER_LINKS[hall], schedules[hall]);
+    SHIFT_CREW_CURRENT[hall].textContent = display.text;
+    SHIFT_CREW_CURRENT[hall].title = display.title;
+    SHIFT_CREW_HOVER[hall].textContent = display.text;
+    SHIFT_CREW_HOVER[hall].title = display.title;
+  }
+
+  const configuredCount = Object.values(schedules).filter(Boolean).length;
+  shiftCrewStatus.className = state.shiftCrewError ? "shift-crew-status error" : "shift-crew-status";
+  if (state.shiftCrewChecking) {
+    shiftCrewStatus.textContent = "Checking shift schedules…";
+  } else if (state.shiftCrewError) {
+    shiftCrewStatus.textContent = state.shiftCrewError;
+  } else if (configuredCount && state.lastShiftCrewCheck) {
+    shiftCrewStatus.textContent = `Checked daily · Last checked ${new Date(state.lastShiftCrewCheck).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    })}`;
+  } else if (configuredCount) {
+    shiftCrewStatus.textContent = "URLs saved. Waiting for the first daily check.";
+  } else {
+    shiftCrewStatus.textContent = "No shift schedules configured.";
+  }
+}
+
+function configureShiftCrewLink(link, url) {
+  if (url) {
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.title = `Open ${link.textContent} shift schedule`;
+    link.removeAttribute("aria-disabled");
+    return;
+  }
+  link.removeAttribute("href");
+  link.removeAttribute("target");
+  link.removeAttribute("rel");
+  link.removeAttribute("title");
+  link.setAttribute("aria-disabled", "true");
+}
+
+function normalizeShiftCrewSchedulesForPopup(value) {
+  const stored = value && typeof value === "object" ? value : {};
+  return Object.fromEntries(
+    SHIFT_CREW_HALLS.map((hall) => [hall, typeof stored[hall] === "string" ? stored[hall] : ""])
+  );
+}
+
+function formatCurrentShiftCrew(url, schedule) {
+  if (!url) return { text: "", title: "" };
+  if (!schedule || schedule.status === "error") {
+    return {
+      text: "Unavailable",
+      title: schedule?.error || "The schedule has not been checked yet"
+    };
+  }
+  const timeParts = getJlabTimePartsForPopup();
+  const todayCode = timeParts.dateCode;
+  if (schedule.status === "no-shift" || schedule.dateCode !== todayCode) {
+    return { text: "No shift scheduled today", title: schedule.title || "" };
+  }
+  const currentHour = timeParts.hour;
+  if (Array.isArray(schedule.hourlyCrew) && schedule.hourlyCrew.length) {
+    const hourCrew = schedule.hourlyCrew.find((item) => Number(item?.hour) === currentHour);
+    if (!hourCrew) return { text: "Current shift unavailable", title: schedule.title || "" };
+    const crew = formatShiftCrewWorkers(hourCrew.workers);
+    return {
+      text: `${hourCrew.shiftName || "Current"} · ${crew.length ? crew.join(" · ") : (hourCrew.status || "No crew listed")}`,
+      title: `${schedule.dateLabel || "Today"} · ${schedule.title || "JLab shift schedule"}`
+    };
+  }
+  const shiftIndex = currentHour < 8 ? 0 : currentHour < 16 ? 1 : 2;
+  const shift = Array.isArray(schedule.shifts) ? schedule.shifts[shiftIndex] : null;
+  if (!shift) return { text: "Current shift unavailable", title: schedule.title || "" };
+  const crew = formatShiftCrewWorkers(shift.workers);
+  const detail = crew.length ? crew.join(" · ") : (shift.status || "No crew listed");
+  return {
+    text: `${shift.name || ["Owl", "Day", "Swing"][shiftIndex]} · ${detail}`,
+    title: `${schedule.dateLabel || "Today"} · ${schedule.title || "JLab shift schedule"}`
+  };
+}
+
+function formatShiftCrewWorkers(value) {
+  return Array.isArray(value)
+    ? value
+        .filter((worker) => worker?.name)
+        .map((worker) => `${worker.role ? `${worker.role}: ` : ""}${worker.name}`)
+    : [];
+}
+
+function getJlabTimePartsForPopup(now = Date.now()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(new Date(now)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])
+  );
+  return {
+    dateCode: `${parts.year}${parts.month}${parts.day}`,
+    hour: Number(parts.hour)
+  };
 }
 
 function renderRecentAlarms(value) {
