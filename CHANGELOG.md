@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.23.0
+
+- Added an optional daily GitHub Release check and a native notification when a newer stable version is available.
+- Added a Track new versions switch; turning it off stops automatic checks and clears active update notices while preserving manual checks.
+- Added a foldable Extension updates section with manual checking, direct ZIP download, and previous-version links.
+- Added a built-in update and rollback guide that preserves the fixed extension ID and recommends a settings backup.
+- Kept update notifications separate from JLab alert levels, quiet hours, email delivery, and Recent alarms.
+- Added regression coverage for version comparison and release-asset selection.
+
 ## 2.22.0
 
 - Added a three-step first-run setup guide that can be reopened from Help.

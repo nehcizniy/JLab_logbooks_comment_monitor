@@ -1,6 +1,6 @@
 {
   "name": "jlab-logbook-comment-monitor",
-  "version": "2.22.0",
+  "version": "2.23.0",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.js",

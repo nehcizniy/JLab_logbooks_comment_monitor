@@ -11,6 +11,7 @@ rm -f "$ARCHIVE" "$ARCHIVE.sha256"
 cd "$ROOT"
 zip -q "$ARCHIVE" \
   manifest.json background.js popup.html popup.css popup.js \
+  update.html update.css update.js extension-updates.js \
   monitor-policy.js health.js jlab-parsers.js email.js shift-crew.js \
   icon.png icon.svg README.md CHANGELOG.md
 

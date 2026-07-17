@@ -24,6 +24,13 @@ const testNotificationButton = document.querySelector("#test-notification");
 const testCommentButton = document.querySelector("#test-comment");
 const commentTestStatus = document.querySelector("#comment-test-status");
 const extensionVersion = document.querySelector("#extension-version");
+const extensionUpdateCurrentVersion = document.querySelector("#extension-update-current-version");
+const extensionUpdateStatus = document.querySelector("#extension-update-status");
+const trackExtensionUpdatesInput = document.querySelector("#track-extension-updates");
+const checkExtensionUpdateButton = document.querySelector("#check-extension-update");
+const openUpdateGuideButton = document.querySelector("#open-update-guide");
+const downloadExtensionUpdateButton = document.querySelector("#download-extension-update");
+const openPreviousVersionsButton = document.querySelector("#open-previous-versions");
 const authorsInput = document.querySelector("#authors");
 const saveAuthorsButton = document.querySelector("#save-authors");
 const testAuthorButton = document.querySelector("#test-author");
@@ -131,6 +138,7 @@ let emailConfigLoaded = false;
 let shiftCrewConfigLoaded = false;
 let currentInterfaceMode = "simple";
 let currentSetupWizardStep = 0;
+let currentExtensionUpdateDownloadUrl = "";
 let activePopupView = ["overview", "shifts", "alerts", "settings"].includes(localStorage.getItem("jlab-popup-view"))
   ? localStorage.getItem("jlab-popup-view")
   : "overview";
@@ -141,10 +149,12 @@ const TRANSIENT_STORAGE_KEYS = new Set([
   "checking", "lastError", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
   "lastEmailError", "lastEmailAttempt", "lastEmailSentAt", "shiftCrewState",
   "shiftCrewChecking", "shiftCrewError", "lastShiftCrewCheck", "healthState",
-  "lastSuccessfulCheck", "lastCommentRecoveryScan", "notificationsSnoozedUntil"
+  "lastSuccessfulCheck", "lastCommentRecoveryScan", "notificationsSnoozedUntil",
+  "extensionUpdateState", "extensionUpdateLastNotifiedVersion", "extensionUpdateDismissedVersion"
 ]);
 
 extensionVersion.textContent = chrome.runtime.getManifest().version;
+extensionUpdateCurrentVersion.textContent = chrome.runtime.getManifest().version;
 extensionId.textContent = chrome.runtime.id;
 gmailExtensionId.textContent = chrome.runtime.id;
 microsoftRedirectUri.textContent = chrome.identity.getRedirectURL("microsoft");
@@ -158,6 +168,21 @@ for (const button of interfaceModeButtons) {
   button.addEventListener("click", () => setInterfaceMode(button.dataset.interfaceModeButton));
 }
 switchToAdvancedButton.addEventListener("click", () => setInterfaceMode("advanced"));
+
+checkExtensionUpdateButton.addEventListener("click", checkExtensionUpdateFromPopup);
+trackExtensionUpdatesInput.addEventListener("change", async () => {
+  await chrome.storage.local.set({ trackExtensionUpdates: trackExtensionUpdatesInput.checked });
+  await render();
+});
+openUpdateGuideButton.addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("update.html") });
+});
+downloadExtensionUpdateButton.addEventListener("click", () => {
+  if (currentExtensionUpdateDownloadUrl) chrome.tabs.create({ url: currentExtensionUpdateDownloadUrl });
+});
+openPreviousVersionsButton.addEventListener("click", () => {
+  chrome.tabs.create({ url: EXTENSION_RELEASES_URL });
+});
 
 copyDiagnosticsButton.addEventListener("click", copyDiagnostics);
 alertPresetInput.addEventListener("change", async () => {
@@ -804,7 +829,8 @@ async function render() {
     "lastEmailError", "lastEmailSentAt", "shiftCrewSchedules", "shiftCrewState", "shiftCrewChecking",
     "shiftCrewError", "lastShiftCrewCheck", "shiftCrewAlertEnabledHalls", "alertPreferences", "quietHours",
     "notificationsSnoozedUntil", "healthState", "lastSuccessfulCheck", "commentScanDiagnostic",
-    "lastCommentRecoveryScan", "interfaceMode", "onboardingCompleted"
+    "lastCommentRecoveryScan", "interfaceMode", "onboardingCompleted", "extensionUpdateState",
+    "trackExtensionUpdates"
   ]);
   const enabled = state.enabled !== false;
   const monitoredBooks = normalizeMonitoredBooks(state.monitoredBooks);
@@ -831,6 +857,7 @@ async function render() {
     state.shiftSummaryEditError
   );
   renderRecentAlarms(state.alertHistory);
+  renderExtensionUpdate(state.extensionUpdateState, state.trackExtensionUpdates !== false);
   renderShiftCrewControls(state);
   renderAlertPolicyControls(state);
   await renderHealthDashboard(state, intervalMinutes);
@@ -1245,6 +1272,60 @@ function getJlabTimePartsForPopup(now = Date.now()) {
     dateCode: `${parts.year}${parts.month}${parts.day}`,
     hour: Number(parts.hour)
   };
+}
+
+async function checkExtensionUpdateFromPopup() {
+  checkExtensionUpdateButton.disabled = true;
+  checkExtensionUpdateButton.textContent = "Checking…";
+  extensionUpdateStatus.className = "extension-update-status";
+  extensionUpdateStatus.textContent = "Checking GitHub releases…";
+  const result = await chrome.runtime.sendMessage({ type: "check-extension-update" });
+  if (!result?.ok) {
+    extensionUpdateStatus.className = "extension-update-status error";
+    extensionUpdateStatus.textContent = result?.error || "The update check failed. Try again later.";
+  }
+  await render();
+  checkExtensionUpdateButton.disabled = false;
+  checkExtensionUpdateButton.textContent = "Check now";
+}
+
+function renderExtensionUpdate(value, trackingEnabled = true) {
+  const currentVersion = chrome.runtime.getManifest().version;
+  const state = normalizeExtensionUpdateState(value, currentVersion);
+  trackExtensionUpdatesInput.checked = trackingEnabled;
+  extensionUpdateCurrentVersion.textContent = currentVersion;
+  extensionUpdateStatus.className = "extension-update-status";
+  currentExtensionUpdateDownloadUrl = state.assetUrl || state.releaseUrl || "";
+  downloadExtensionUpdateButton.hidden = state.status !== "available";
+  downloadExtensionUpdateButton.textContent = state.assetUrl
+    ? `Download ${state.latestVersion}`
+    : `View release ${state.latestVersion}`;
+
+  if (!trackingEnabled) {
+    extensionUpdateStatus.textContent = state.latestVersion
+      ? `Automatic tracking is off. Last checked release: ${state.latestVersion}. Use Check now anytime.`
+      : "Automatic tracking is off. Use Check now anytime.";
+  } else if (state.status === "available") {
+    extensionUpdateStatus.classList.add("available");
+    const published = formatExtensionReleaseDate(state.publishedAt);
+    extensionUpdateStatus.textContent = `Version ${state.latestVersion} is available${published ? ` · ${published}` : ""}.`;
+  } else if (state.status === "current") {
+    extensionUpdateStatus.textContent = `You have the latest stable version${state.latestVersion ? ` (${state.latestVersion})` : ""}.`;
+  } else if (state.status === "development") {
+    extensionUpdateStatus.textContent = `Installed version ${currentVersion} is newer than the latest published release (${state.latestVersion}).`;
+  } else if (state.status === "error") {
+    extensionUpdateStatus.classList.add("error");
+    extensionUpdateStatus.textContent = state.error || "The latest release could not be checked.";
+  } else {
+    extensionUpdateStatus.textContent = "Checking GitHub releases…";
+  }
+}
+
+function formatExtensionReleaseDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
 function renderRecentAlarms(value) {

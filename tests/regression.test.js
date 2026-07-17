@@ -7,7 +7,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const context = { URL, Intl, Date, console, setTimeout, clearTimeout, Promise };
 vm.createContext(context);
-for (const file of ["monitor-policy.js", "health.js", "jlab-parsers.js", "shift-crew.js"]) {
+for (const file of ["monitor-policy.js", "health.js", "jlab-parsers.js", "extension-updates.js", "shift-crew.js"]) {
   vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), context, { filename: file });
 }
 const fixture = (name) => fs.readFileSync(path.join(__dirname, "fixtures", name), "utf8");
@@ -106,10 +106,32 @@ test("diagnostic snapshots exclude recipients and OAuth tokens", () => {
   assert.equal(snapshot.email.configured, true);
 });
 
+test("compares extension releases and selects the packaged ZIP", () => {
+  assert.equal(context.compareExtensionVersions("v2.23.0", "2.22.0"), 1);
+  assert.equal(context.compareExtensionVersions("2.23", "2.23.0"), 0);
+  assert.equal(context.compareExtensionVersions("2.22.9", "2.23.0"), -1);
+  const release = context.normalizeExtensionRelease({
+    tag_name: "v2.23.0",
+    name: "JLab Logbook Comment Monitor v2.23.0",
+    html_url: "https://github.com/example/releases/tag/v2.23.0",
+    published_at: "2026-07-17T12:00:00Z",
+    assets: [
+      { name: "notes.txt", browser_download_url: "https://example.test/notes" },
+      { name: "jlab-logbook-comment-monitor-v2.23.0.zip", browser_download_url: "https://example.test/monitor.zip" }
+    ]
+  });
+  assert.equal(release.latestVersion, "2.23.0");
+  assert.equal(release.assetUrl, "https://example.test/monitor.zip");
+  assert.equal(context.createExtensionUpdateState(release, "2.22.0", 123).status, "available");
+  assert.equal(context.createExtensionUpdateState(release, "2.23.0", 123).status, "current");
+  assert.equal(context.createExtensionUpdateState(release, "2.24.0", 123).status, "development");
+  assert.equal(context.normalizeExtensionUpdateState({ status: "available", latestVersion: "2.23.0" }, "2.23.0").status, "current");
+});
+
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "2.22.0");
+  assert.equal(manifest.version, "2.23.0");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
@@ -118,11 +140,15 @@ test("manifest and popup retain required extension structure", () => {
   for (const id of [
     "health-list", "alert-policy-list", "alert-preset", "shift-crew-details", "copy-diagnostics",
     "test-setup", "interface-mode-description", "advanced-settings-banner", "switch-to-advanced",
-    "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide"
+    "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide",
+    "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
+    "open-previous-versions"
   ]) {
     assert.equal(ids.includes(id), true, `missing #${id}`);
   }
   assert.match(html, /data-interface-mode="simple"/);
   assert.match(html, /data-interface-mode-button="advanced"/);
   assert.match(css, /body\[data-interface-mode="simple"\]/);
+  assert.equal(fs.existsSync(path.join(root, "update.html")), true);
+  assert.equal(fs.existsSync(path.join(root, "extension-updates.js")), true);
 });

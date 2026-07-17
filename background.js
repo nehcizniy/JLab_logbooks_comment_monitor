@@ -1,4 +1,4 @@
-importScripts("monitor-policy.js", "health.js", "jlab-parsers.js", "email.js", "shift-crew.js");
+importScripts("monitor-policy.js", "health.js", "jlab-parsers.js", "extension-updates.js", "email.js", "shift-crew.js");
 
 const CHECK_ALARM = "jlab-comment-check";
 const DEFAULT_CHECK_INTERVAL_MINUTES = 5;
@@ -23,6 +23,7 @@ const ENTRY_NOTIFICATION_PREFIX = "jlab-entry:";
 const SHIFT_EDIT_NOTIFICATION_PREFIX = "jlab-shift-edit:";
 const EVENT_NOTIFICATION_PREFIX = "jlab-event:";
 const SHIFT_CREW_NOTIFICATION_PREFIX = "jlab-shift-crew:";
+const UPDATE_NOTIFICATION_PREFIX = "jlab-update:";
 const TEST_NOTIFICATION_ID = "jlab-test";
 const COMMENT_CURSOR_SEED = 58417;
 const MAX_ALERT_HISTORY = 20;
@@ -34,7 +35,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "pageEventStates", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
     "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState",
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState", "settingsSchemaVersion",
-    "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted"
+    "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted", "extensionUpdateState",
+    "trackExtensionUpdates"
   ]);
   const updates = {};
   if (typeof current.enabled !== "boolean") updates.enabled = true;
@@ -75,47 +77,69 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   updates.healthState = normalizeHealthState(current.healthState);
   if (!Array.isArray(current.shiftCrewAlertEnabledHalls)) updates.shiftCrewAlertEnabledHalls = [];
   updates.interfaceMode = normalizeInterfaceMode(current.interfaceMode);
+  updates.extensionUpdateState = normalizeExtensionUpdateState(
+    current.extensionUpdateState,
+    chrome.runtime.getManifest().version
+  );
+  if (typeof current.trackExtensionUpdates !== "boolean") updates.trackExtensionUpdates = true;
   if (typeof current.onboardingCompleted !== "boolean") {
     updates.onboardingCompleted = details?.reason === "install" ? false : true;
   }
   updates.settingsSchemaVersion = MONITOR_SETTINGS_SCHEMA_VERSION;
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
   await ensureMonitorSettings();
-  await Promise.all([syncAlarm(), syncShiftCrewAlarm()]);
+  await Promise.all([syncAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
-  await Promise.all([checkForComments(), checkShiftCrewSchedulesIfDue(true)]);
+  await Promise.all([
+    checkForComments(),
+    checkShiftCrewSchedulesIfDue(true),
+    checkExtensionUpdateIfEnabled()
+  ]);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureMonitorSettings();
-  await Promise.all([syncAlarm(), syncShiftCrewAlarm()]);
+  await Promise.all([syncAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
   const { enabled = true } = await chrome.storage.local.get("enabled");
   await Promise.all([
     enabled ? checkForComments() : Promise.resolve(),
-    checkShiftCrewSchedulesIfDue()
+    checkShiftCrewSchedulesIfDue(),
+    checkExtensionUpdateIfEnabled()
   ]);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === CHECK_ALARM) checkForComments();
   if (alarm.name === SHIFT_CREW_ALARM) checkShiftCrewSchedules();
+  if (alarm.name === EXTENSION_UPDATE_ALARM) checkExtensionUpdateIfEnabled();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabled || changes.intervalMinutes || changes.enabledBooks || changes.monitoredBooks) syncAlarm();
   if (changes.shiftCrewSchedules) syncShiftCrewAlarm();
+  if (changes.trackExtensionUpdates && typeof changes.trackExtensionUpdates.oldValue === "boolean") {
+    syncExtensionUpdateAlarm();
+    if (changes.trackExtensionUpdates.newValue === true) checkExtensionUpdate().catch(() => null);
+    else clearExtensionUpdateNotifications();
+  }
   if (changes.enabledBooks) handleEnabledBooksChange(changes.enabledBooks);
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "check-now") {
-    Promise.all([checkForComments(), checkShiftCrewSchedules()])
+    Promise.all([checkForComments(), checkShiftCrewSchedules(), checkExtensionUpdateIfEnabled()])
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "check-extension-update") {
+    checkExtensionUpdate({ notify: false })
+      .then((state) => sendResponse({ ok: true, state }))
+      .catch((error) => sendResponse({ ok: false, error: friendlyUpdateError(error) }));
     return true;
   }
   if (message?.type === "clear-notifications") {
@@ -160,7 +184,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "settings-restored") {
     ensureMonitorSettings()
-      .then(() => Promise.all([syncAlarm(), syncShiftCrewAlarm(), updateAlertBadge({}), checkShiftCrewSchedulesIfDue(true)]))
+      .then(() => Promise.all([
+        syncAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm(), updateAlertBadge({}),
+        checkShiftCrewSchedulesIfDue(true), checkExtensionUpdateIfEnabled()
+      ]))
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -207,7 +234,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function ensureMonitorSettings() {
   const state = await chrome.storage.local.get([
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState",
-    "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted"
+    "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted",
+    "trackExtensionUpdates"
   ]);
   await chrome.storage.local.set({
     alertPreferences: normalizeAlertPreferences(state.alertPreferences),
@@ -221,11 +249,17 @@ async function ensureMonitorSettings() {
       : [],
     interfaceMode: normalizeInterfaceMode(state.interfaceMode),
     onboardingCompleted: typeof state.onboardingCompleted === "boolean" ? state.onboardingCompleted : true,
+    trackExtensionUpdates: typeof state.trackExtensionUpdates === "boolean" ? state.trackExtensionUpdates : true,
     settingsSchemaVersion: MONITOR_SETTINGS_SCHEMA_VERSION
   });
 }
 
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+  if (isUpdateNotification(notificationId)) {
+    if (buttonIndex === 0) openAlert(notificationId);
+    else dismissExtensionUpdateAlert(notificationId);
+    return;
+  }
   if (!isMonitorNotification(notificationId) && !isTestNotification(notificationId)) return;
   if (buttonIndex === 0) {
     removeAlert(notificationId);
@@ -237,6 +271,10 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
 chrome.notifications.onClicked.addListener((notificationId) => {
   if (isTestNotification(notificationId)) {
     removeAlert(notificationId);
+    return;
+  }
+  if (isUpdateNotification(notificationId)) {
+    openAlert(notificationId);
     return;
   }
   if (isMonitorNotification(notificationId)) openAlert(notificationId);
@@ -257,6 +295,129 @@ async function syncAlarm() {
       periodInMinutes: interval
     });
   }
+}
+
+async function syncExtensionUpdateAlarm() {
+  const { trackExtensionUpdates = true } = await chrome.storage.local.get("trackExtensionUpdates");
+  await chrome.alarms.clear(EXTENSION_UPDATE_ALARM);
+  if (!trackExtensionUpdates) return;
+  await chrome.alarms.create(EXTENSION_UPDATE_ALARM, {
+    delayInMinutes: EXTENSION_UPDATE_INTERVAL_MINUTES,
+    periodInMinutes: EXTENSION_UPDATE_INTERVAL_MINUTES
+  });
+}
+
+async function checkExtensionUpdateIfEnabled() {
+  const { trackExtensionUpdates = true } = await chrome.storage.local.get("trackExtensionUpdates");
+  if (!trackExtensionUpdates) return null;
+  return checkExtensionUpdate().catch(() => null);
+}
+
+async function checkExtensionUpdate(options = {}) {
+  const currentVersion = chrome.runtime.getManifest().version;
+  const previous = await chrome.storage.local.get([
+    "extensionUpdateState", "extensionUpdateLastNotifiedVersion", "extensionUpdateDismissedVersion"
+  ]);
+  const checkingState = {
+    ...normalizeExtensionUpdateState(previous.extensionUpdateState, currentVersion),
+    status: "checking",
+    currentVersion,
+    error: ""
+  };
+  await chrome.storage.local.set({ extensionUpdateState: checkingState });
+  try {
+    const response = await fetch(`${EXTENSION_RELEASE_API_URL}?monitor_time=${Date.now()}`, {
+      cache: "no-store",
+      credentials: "omit",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+      }
+    });
+    if (!response.ok) throw new Error(`GitHub releases returned HTTP ${response.status}`);
+    const release = normalizeExtensionRelease(await response.json());
+    const state = createExtensionUpdateState(release, currentVersion);
+    await chrome.storage.local.set({ extensionUpdateState: state });
+    const alreadyNotified = normalizeExtensionVersion(previous.extensionUpdateLastNotifiedVersion);
+    const dismissed = normalizeExtensionVersion(previous.extensionUpdateDismissedVersion);
+    if (options.notify !== false && state.status === "available" && state.latestVersion !== alreadyNotified && state.latestVersion !== dismissed) {
+      await showExtensionUpdateNotification(state);
+    }
+    return state;
+  } catch (error) {
+    const state = {
+      ...normalizeExtensionUpdateState(previous.extensionUpdateState, currentVersion),
+      status: "error",
+      currentVersion,
+      checkedAt: Date.now(),
+      error: friendlyUpdateError(error)
+    };
+    await chrome.storage.local.set({ extensionUpdateState: state });
+    throw error;
+  }
+}
+
+function friendlyUpdateError(error) {
+  const message = String(error?.message || error || "Update check failed");
+  if (/HTTP 403|rate limit/i.test(message)) return "GitHub temporarily limited update checks. Try again later.";
+  if (/failed to fetch|network|load failed/i.test(message)) return "Could not reach GitHub. Check the network or VPN and try again.";
+  return message.replace(/^Error:\s*/i, "").slice(0, 240);
+}
+
+async function showExtensionUpdateNotification(state) {
+  const notificationId = createNotificationInstanceId(`${UPDATE_NOTIFICATION_PREFIX}${state.latestVersion}`);
+  const storage = await chrome.storage.local.get("pendingAlerts");
+  const pendingAlerts = storage.pendingAlerts || {};
+  pendingAlerts[notificationId] = {
+    id: notificationId,
+    baseId: `${UPDATE_NOTIFICATION_PREFIX}${state.latestVersion}`,
+    alertType: "extensionUpdate",
+    systemTitle: `JLab monitor ${state.latestVersion} is available`,
+    message: `Installed version: ${state.currentVersion}. Open the update guide to download it or choose an earlier version.`,
+    url: chrome.runtime.getURL("update.html"),
+    updateVersion: state.latestVersion,
+    createdAt: Date.now()
+  };
+  await chrome.storage.local.set({
+    pendingAlerts,
+    extensionUpdateLastNotifiedVersion: state.latestVersion
+  });
+  await updateAlertBadge(pendingAlerts);
+  await chrome.notifications.create(notificationId, {
+    type: "basic",
+    iconUrl: "icon.png",
+    title: `JLab monitor ${state.latestVersion} is available`,
+    message: `You have ${state.currentVersion}. Update now or keep the current version.`,
+    contextMessage: "Extension update",
+    requireInteraction: true,
+    priority: 1,
+    buttons: [{ title: "Update guide" }, { title: "Dismiss" }]
+  });
+}
+
+async function dismissExtensionUpdateAlert(id) {
+  const alert = await getAlert(id);
+  if (alert?.updateVersion) {
+    await chrome.storage.local.set({ extensionUpdateDismissedVersion: alert.updateVersion });
+  }
+  await removeAlert(id);
+}
+
+async function clearExtensionUpdateNotifications() {
+  const [notifications, storage] = await Promise.all([
+    chrome.notifications.getAll(),
+    chrome.storage.local.get("pendingAlerts")
+  ]);
+  await Promise.all(
+    Object.keys(notifications)
+      .filter((id) => isUpdateNotification(id))
+      .map((id) => chrome.notifications.clear(id))
+  );
+  const pendingAlerts = Object.fromEntries(
+    Object.entries(storage.pendingAlerts || {}).filter(([id]) => !isUpdateNotification(id))
+  );
+  await chrome.storage.local.set({ pendingAlerts });
+  await updateAlertBadge(pendingAlerts);
 }
 
 async function handleEnabledBooksChange(change) {
@@ -1337,7 +1498,12 @@ function isMonitorNotification(id) {
     || id.startsWith(ENTRY_NOTIFICATION_PREFIX)
     || id.startsWith(SHIFT_EDIT_NOTIFICATION_PREFIX)
     || id.startsWith(EVENT_NOTIFICATION_PREFIX)
-    || id.startsWith(SHIFT_CREW_NOTIFICATION_PREFIX);
+    || id.startsWith(SHIFT_CREW_NOTIFICATION_PREFIX)
+    || id.startsWith(UPDATE_NOTIFICATION_PREFIX);
+}
+
+function isUpdateNotification(id) {
+  return id.startsWith(UPDATE_NOTIFICATION_PREFIX);
 }
 
 function isTestNotification(id) {

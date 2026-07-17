@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Update JLab Logbook Comment Monitor</title>
+  <link rel="stylesheet" href="update.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">JLAB LOGBOOK MONITOR</p>
+      <h1>Update or restore a version</h1>
+      <p class="intro">The extension checks GitHub Releases once per day. Chrome does not allow an unpacked extension to replace its own files, so the last reload step stays under your control.</p>
+    </header>
+
+    <section class="version-card">
+      <div><span>Installed</span><strong id="installed-version"></strong></div>
+      <div><span>Latest release</span><strong id="latest-version">Checking…</strong></div>
+      <p id="update-status" aria-live="polite">Checking GitHub releases…</p>
+      <div class="actions">
+        <button id="check-update" type="button">Check again</button>
+        <button id="download-update" class="primary" type="button" disabled>Download latest ZIP</button>
+        <button id="open-releases" type="button">See all versions</button>
+        <button id="open-extensions" type="button">Open Chrome extensions</button>
+      </div>
+    </section>
+
+    <section class="warning-card">
+      <strong>Keep your settings</strong>
+      <p>Open the extension popup and export <b>Settings backup</b> before changing versions. Do not click <b>Remove</b> on Chrome’s extensions page. Reloading the same fixed extension ID normally preserves settings.</p>
+    </section>
+
+    <div class="guide-grid">
+      <section class="guide-card">
+        <p class="step-label">UPDATE</p>
+        <h2>Install the latest version</h2>
+        <ol>
+          <li>Select <b>Download latest ZIP</b> and extract it.</li>
+          <li>Find the folder currently loaded in Chrome and rename it with <code>-backup</code> at the end.</li>
+          <li>Move the newly extracted folder into the old folder’s location and give it the old folder’s exact name.</li>
+          <li>Open <code>chrome://extensions</code> and select <b>Reload</b> on JLab Logbook Comment Monitor.</li>
+          <li>Confirm the installed version shown in the popup and select <b>Test my setup</b>.</li>
+        </ol>
+      </section>
+
+      <section class="guide-card">
+        <p class="step-label">ROLL BACK</p>
+        <h2>Return to a previous version</h2>
+        <ol>
+          <li>Select <b>See all versions</b> and download the ZIP for the version you want.</li>
+          <li>Rename the current extension folder so it remains available as a backup.</li>
+          <li>Put the older folder at the original folder path and restore the original folder name.</li>
+          <li>Open <code>chrome://extensions</code> and select <b>Reload</b>.</li>
+          <li>If settings look wrong, import the backup you exported before changing versions.</li>
+        </ol>
+      </section>
+    </div>
+
+    <p class="footnote">Keep at least one known-working ZIP or backup folder. Older versions may not understand settings introduced by a newer release, which is why exporting settings first is recommended.</p>
+  </main>
+  <script src="extension-updates.js"></script>
+  <script src="update.js"></script>
+</body>
+</html>

@@ -22,6 +22,8 @@ Every alert receives its own notification instance, so a later alert never repla
 
 The popup includes a collapsible **Recent alarms** menu. It shows the five newest real alerts by default and can expand to the newest twenty. Each saved alarm includes its notification time, title, message, and a link back to the related logbook entry or DTM event. Alerts remain in this history even when their system/email delivery channel is disabled, quiet hours are active, or notifications are temporarily snoozed. Clearing active system notifications does not erase this history. **Test system notification**, **Test comment match**, and **Test name match** do not add test results to the history.
 
+The extension checks the repository's latest stable GitHub Release once per day and whenever the update panel's **Check now** is selected. **Track new versions** is on by default and can be turned off at any time. Turning it off removes the daily check and clears active update notices while leaving the manual version check available. When tracking is on and a newer version appears, the extension creates one native system notification for that version with **Update guide** and **Dismiss** buttons. The collapsible **Extension updates** section shows the installed and latest versions, offers a direct release-ZIP link, and opens a dedicated guide for updating or returning to a previous version. Update notices are independent of JLab alert levels, email, quiet hours, and the main monitor switch.
+
 Each successful check also finds every entry whose title contains **shift summary** within the configured check range for each enabled logbook. The popup groups the matches by logbook and makes every listed entry a direct link. Every logbook group has its own **Edit alerts** switch, which is on by default. For each selected logbook, the extension monitors its newest matching entry and sends a system notification with **Clear** and **Go to entry** buttons if that same entry's title, body, attachments, tags, logbooks, Entry Makers, or attention state changes. Comment activity is excluded from the edit comparison. A newly posted shift summary establishes a new baseline and is not mistaken for an edit. Turning a logbook's switch back on first records a fresh baseline for that logbook, preventing alerts for edits made while its monitoring was off.
 
 The popup is divided into **Monitoring**, **Shifts**, **Alerts**, and **Settings** views. The sections inside each view remain collapsible. **Check now**, **Clear alerts**, and the overall monitor status remain visible while changing views.
@@ -42,7 +44,7 @@ Notifications display an **Urgent**, **Important**, or **Info** label. A DTM eve
 
 ## Simple and Advanced interfaces
 
-Simple mode shows the master monitor switch, status, Check now, Clear alerts, five recent alarms, the automatic interval, logbook on/off controls, watched names, current Shift Crew, Hall A–D schedule URL fields, shift-summary links, alert level, pause controls, and Test my setup. Adding and opening a logbook remain available. Detailed ranges, logbook removal, individual alert channels, quiet hours, recurring-DTM controls, per-hall Shift Crew change alerts, email setup, health diagnostics, backup tools, and individual tests remain in Advanced mode.
+Simple mode shows the master monitor switch, status, Check now, Clear alerts, five recent alarms, extension updates, the automatic interval, logbook on/off controls, watched names, current Shift Crew, Hall A–D schedule URL fields, shift-summary links, alert level, pause controls, and Test my setup. Adding and opening a logbook remain available. Detailed ranges, logbook removal, individual alert channels, quiet hours, recurring-DTM controls, per-hall Shift Crew change alerts, email setup, health diagnostics, backup tools, and individual tests remain in Advanced mode.
 
 Advanced settings continue running when the interface is switched to Simple. When any hidden advanced behavior is active, Simple mode shows a short notice and a **Switch to Advanced** button. The selected interface mode is included in settings exports and restored with the rest of the configuration.
 
@@ -67,14 +69,22 @@ Select the small **?** button beside **Comment monitor** for a quick guide insid
 
 All unpacked installations use the permanent extension ID `gbfomjfeblcepcnmbohebdpndbfkcabj`. The public key that produces this ID is stored in `manifest.json`, so the ID remains the same when the folder is moved, the extension is installed on another computer, or a new version is loaded. Do not remove or replace the manifest's `key` value.
 
-## Update
+## Update or return to a previous version
 
-1. Download and extract the newer ZIP file.
-2. Replace the files inside your existing `jlab-logbook-comment-monitor` folder with the newer files. Keep the folder in the same location.
-3. Open `chrome://extensions`.
-4. Find **JLab Logbook Comment Monitor** and click **Reload**.
+Open **Extension updates** in the popup. Use **Track new versions** to enable or disable automatic daily checks. Select **Check now** to refresh the release status manually, **Download update** for the newest release ZIP, **Previous versions** for the complete release list, or **Update or go back** for the full built-in guide.
 
-After version 2.16.0, the fixed extension ID—not the folder location—identifies the extension. Using **Reload** normally preserves locally stored settings. Do not click **Remove** as part of an ordinary update, because removing and reinstalling the extension may reset those settings.
+To change versions safely:
+
+1. Export **Settings backup** from the popup.
+2. Download and extract the desired release ZIP.
+3. Rename the folder currently loaded in Chrome with `-backup` at the end.
+4. Put the extracted folder at the original folder path and give it the old folder's exact name.
+5. Open `chrome://extensions`, find **JLab Logbook Comment Monitor**, and select **Reload**.
+6. Confirm the version in the popup and run **Test my setup**.
+
+Use the same steps with an older GitHub Release to roll back. Keeping the previous folder makes the first rollback especially quick: restore that folder to the original path and select **Reload** again. After version 2.16.0, the fixed extension ID identifies the extension, so Reload normally preserves locally stored settings. Do not select **Remove** during an ordinary update or rollback, because removing the extension may reset its settings. Older releases may not understand settings introduced later, so exporting a backup first is recommended.
+
+Chrome does not permit an unpacked extension to replace its own installed files. This is why the extension can detect, download, and explain an update, while the final folder replacement and Reload remain visible user actions. Automatic self-hosted installation is not available for ordinary macOS or Windows Chrome users without the Chrome Web Store or managed enterprise policies.
 
 ## Back up or restore settings
 
@@ -209,6 +219,7 @@ To verify a name without asking the person to create another entry, click **Test
 - State is stored only in Chrome's local extension storage.
 - Copied diagnostics exclude receiving addresses, access tokens, refresh tokens, and passwords.
 - The clipboard-write permission is used only when you select **Copy diagnostics**.
+- The GitHub API permission is used only to read public release metadata once per day or when you manually check for an extension update.
 - Chrome must be running for scheduled checks and desktop notifications.
 
 If the popup says **JLab login required**, open one of the enabled logbooks, sign in, then click **Check now** again.
@@ -217,4 +228,4 @@ If the popup says **JLab login required**, open one of the enabled logbooks, sig
 
 The repository includes saved, synthetic regression fixtures for JLab API wrappers, comment pages, DTM events, and Hall A/B/D shift formats. Run `npm test` for the regression suite and `npm run check` for JavaScript syntax checks. GitHub Actions runs both checks on every push and pull request, then builds an installable artifact.
 
-Run `npm run package` to create `dist/jlab-logbook-comment-monitor-vVERSION.zip` and its `.sha256` checksum. Pushing a tag that exactly matches the manifest version, such as `v2.20.0`, runs the checks, packages the extension, and attaches both files to a GitHub Release. Release notes are generated from the committed changes; user-facing changes are also summarized in `CHANGELOG.md`.
+Run `npm run package` to create `dist/jlab-logbook-comment-monitor-vVERSION.zip` and its `.sha256` checksum. Pushing a tag that exactly matches the manifest version, such as `v2.23.0`, runs the checks, packages the extension, and attaches both files to a GitHub Release. The extension's update checker reads this release and links directly to the packaged ZIP. Release notes are generated from the committed changes; user-facing changes are also summarized in `CHANGELOG.md`.

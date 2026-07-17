@@ -45,6 +45,7 @@
         <li>Switch between Simple and Advanced at any time. Your settings and alarm history are preserved.</li>
         <li>Use Check now for an immediate scan.</li>
         <li>Open Recent alarms to review and reopen the latest alerts.</li>
+        <li>Open Extension updates to check for a new release, update safely, or return to an earlier version.</li>
         <li>Use Monitoring health to review each source or copy privacy-safe diagnostics.</li>
         <li>Add public JLab schedule URLs under Shift Crew to see the current Hall A–D workers.</li>
         <li>Use Alerts to choose system/email delivery, quiet hours, or a temporary snooze.</li>
@@ -87,6 +88,29 @@
       <div class="recent-alarms-body">
         <div id="recent-alarms-list" class="recent-alarms-list"></div>
         <button id="expand-alarms" class="expand-alarms" type="button" hidden>Show up to 20</button>
+      </div>
+    </details>
+
+    <details id="extension-update-details" class="extension-update-card" data-popup-view="overview">
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Extension updates</strong>
+          <small id="extension-update-summary">Installed version <span id="extension-update-current-version"></span></small>
+        </span>
+      </summary>
+      <div class="extension-update-body">
+        <label class="extension-update-toggle">
+          <span><strong>Track new versions</strong><small>Check GitHub once per day and notify once for each new release</small></span>
+          <input id="track-extension-updates" type="checkbox">
+        </label>
+        <p id="extension-update-status" class="extension-update-status" aria-live="polite">Checking GitHub releases…</p>
+        <div class="extension-update-actions">
+          <button id="check-extension-update" type="button">Check now</button>
+          <button id="open-update-guide" type="button">Update or go back</button>
+          <button id="download-extension-update" class="primary" type="button" hidden>Download update</button>
+          <button id="open-previous-versions" type="button">Previous versions</button>
+        </div>
+        <small>Updates use the same permanent extension ID. Reloading normally keeps settings; export a backup before changing versions.</small>
       </div>
     </details>
 
@@ -409,6 +433,7 @@
   </div>
   <script src="monitor-policy.js"></script>
   <script src="health.js"></script>
+  <script src="extension-updates.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
