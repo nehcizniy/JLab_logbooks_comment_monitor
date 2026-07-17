@@ -1,6 +1,16 @@
 # JLab Logbook Comment Monitor
 
+## Quick Start
+
+1. Install or reload the extension, open its popup, and follow the three-step setup guide to choose your logbooks and check interval.
+2. Keep the monitor switch on and use the recommended **Standard** alert level. Select **Test my setup** once to verify system notifications and JLab access.
+3. Keep Chrome running. Logbook tabs do not need to stay open; use **Go to entry** when an alert appears.
+
 This Chrome extension checks any user-selected JLab logbooks on a selectable 5, 10, 15, 30, or 60 minute interval. Each logbook has its own adjustable check range: the latest 1–1000 entries, the latest 1–720 hours, or the latest 1–30 days. The default is 100 entries. HCLOG, HBLOG, and SOLID are included initially, and every added logbook can be turned on or off independently. It monitors new comment permalinks and beam-down event state. It can also notify you when selected people appear as an entry's **Author** or **Entry Maker**.
+
+The extension has two interface modes using the same monitoring engine. **Simple** is the default and keeps common controls on one page. **Advanced** exposes every per-logbook, delivery, Shift Crew, diagnostic, email, and backup setting. Use the **Simple / Advanced** buttons near the top of the popup to switch instantly. Switching does not reset monitoring baselines, settings, active notifications, or alarm history.
+
+On a new installation, a three-step setup guide explains the monitor, lets the user choose logbooks and an interval, applies the recommended Standard alerts, and can create a test system notification. Select **Open setup guide** under the **?** help button to run it again later.
 
 When an entry gains a comment, a native Chrome system notification shows:
 
@@ -8,13 +18,41 @@ When an entry gains a comment, a native Chrome system notification shows:
 - the entry's original creation time;
 - **Clear** and **Go to entry** buttons.
 
-Every alert receives its own notification instance. A later comment, watched-name entry, or beam-event change will not replace an older uncleared notification, even when multiple comments belong to the same logbook entry.
+Every alert receives its own notification instance, so a later alert never replaces an older uncleared notification. When one check finds several new comments on the same entry, they are combined into one notification that reports the number of new comments and links to the newest one.
 
-The popup includes a collapsible **Recent alarms** menu. It shows the five newest real alerts by default and can expand to the newest twenty. Each saved alarm includes its notification time, title, message, and a link back to the related logbook entry or DTM event. Clearing active system notifications does not erase this recent-alarm history. **Test system notification**, **Test comment match**, and **Test name match** do not add test results to the history.
+The popup includes a collapsible **Recent alarms** menu. It shows the five newest real alerts by default and can expand to the newest twenty. Each saved alarm includes its notification time, title, message, and a link back to the related logbook entry or DTM event. Alerts remain in this history even when their system/email delivery channel is disabled, quiet hours are active, or notifications are temporarily snoozed. Clearing active system notifications does not erase this history. **Test system notification**, **Test comment match**, and **Test name match** do not add test results to the history.
 
 Each successful check also finds every entry whose title contains **shift summary** within the configured check range for each enabled logbook. The popup groups the matches by logbook and makes every listed entry a direct link. Every logbook group has its own **Edit alerts** switch, which is on by default. For each selected logbook, the extension monitors its newest matching entry and sends a system notification with **Clear** and **Go to entry** buttons if that same entry's title, body, attachments, tags, logbooks, Entry Makers, or attention state changes. Comment activity is excluded from the edit comparison. A newly posted shift summary establishes a new baseline and is not mistaken for an edit. Turning a logbook's switch back on first records a fresh baseline for that logbook, preventing alerts for edits made while its monitoring was off.
 
-The **Recent alarms**, **Shift Crew**, **Shift summaries**, **Email notifications**, **Monitored logbooks**, and **Notify for new entries by** sections are collapsible to keep the popup compact. Notification test controls are grouped at the bottom of the popup.
+The popup is divided into **Monitoring**, **Shifts**, **Alerts**, and **Settings** views. The sections inside each view remain collapsible. **Check now**, **Clear alerts**, and the overall monitor status remain visible while changing views.
+
+## Simple alert levels
+
+The **Alerts** view starts with three straightforward levels:
+
+- **Essential** — DTM event changes and new entries by watched Authors or Entry Makers.
+- **Standard** — Essential plus comments and edits to the newest shift summary. This is the default and recommended level.
+- **Everything** — all alert types, including Shift Crew changes and recurring reminders while a DTM event remains open.
+
+The **Advanced** section keeps individual System and Email switches, quiet hours, and the recurring-DTM switch available without putting them in the main workflow. Changing an individual choice labels the setup **Custom**. **Pause alerts** temporarily suppresses system and email delivery for 1, 4, or 8 hours while still saving each change in **Recent alarms**.
+
+Select **Use recommended defaults** to restore 5-minute checks, Standard alerts, DTM changes only, no quiet hours, and no active pause. This does not remove logbooks, watched names, schedules, email configuration, monitoring baselines, or alarm history.
+
+Notifications display an **Urgent**, **Important**, or **Info** label. A DTM event opening or changing is Urgent; comments, watched-name entries, shift-summary edits, and event closures are Important; recurring DTM reminders and Shift Crew changes are Info.
+
+## Simple and Advanced interfaces
+
+Simple mode shows the master monitor switch, status, Check now, Clear alerts, five recent alarms, the automatic interval, logbook on/off controls, watched names, current Shift Crew, Hall A–D schedule URL fields, shift-summary links, alert level, pause controls, and Test my setup. Adding and opening a logbook remain available. Detailed ranges, logbook removal, individual alert channels, quiet hours, recurring-DTM controls, per-hall Shift Crew change alerts, email setup, health diagnostics, backup tools, and individual tests remain in Advanced mode.
+
+Advanced settings continue running when the interface is switched to Simple. When any hidden advanced behavior is active, Simple mode shows a short notice and a **Switch to Advanced** button. The selected interface mode is included in settings exports and restored with the rest of the configuration.
+
+## Monitoring health and recovery
+
+The **Monitoring health** panel reports the last successful check, Chrome's next scheduled checks, entries and comment IDs scanned, Shift Crew and DTM status, email delivery status, and the latest error for each source. Repeated failures show a consecutive-failure count so a persistent problem is easy to distinguish from a one-time error. **Copy diagnostics** copies a troubleshooting snapshot without email recipients, OAuth tokens, or passwords.
+
+Under **Settings**, **Test my setup** checks native system notifications, access to an enabled JLab logbook, the DTM page, every configured Shift Crew schedule, and a connected email sender. If email is connected and has receiving addresses, this explicit test sends one test message. Unconfigured features are shown as skipped instead of failed.
+
+Normal comment checks scan up to 200 IDs and stop after 20 consecutive unused IDs. Once per day, the extension performs a deeper recovery scan: it rechecks the previous 100 IDs and scans up to 600 IDs with a 100-ID gap tolerance. Seen comment IDs prevent duplicate alerts. The first recovery pass establishes its overlap baseline without treating older comments as new.
 
 Select the small **?** button beside **Comment monitor** for a quick guide inside the popup.
 
@@ -60,7 +98,9 @@ This migration happens once. Later unpacked updates retain the fixed ID and do n
 
 The collapsible **Shift Crew** section sits between **Recent alarms** and **Shift summaries**. It provides one schedule-URL field for each of Hall A, Hall B, Hall C, and Hall D. Paste a supported public JLab shift-schedule URL into the appropriate hall and select **Enter**. A successful Enter saves the URLs, checks the schedules, and folds the section. Blank halls remain blank. The extension then refreshes every configured URL once per day, independently of the main logbook-monitor switch. **Check now** also refreshes the configured schedules.
 
-When **Shift Crew** is folded, hover over or keyboard-focus its heading to display a floating card aligned to the right side of the popup. The card shows the crew scheduled for the current time using JLab local time. Select a configured Hall A, B, C, or D name in either the expanded section or floating card to open that hall's schedule. The daily check stores the day's schedule, so the displayed crew changes at the schedule's shift boundaries without downloading the page again.
+When **Shift Crew** is folded, hover over or keyboard-focus its heading to display a floating card aligned to the right side of the popup. The card shows the current crew, next crew, and next handoff time using JLab local time. Select a configured Hall A, B, C, or D name in either the expanded section or floating card to open that hall's schedule. The daily check stores the day's schedule, so the displayed crew changes at the schedule's shift boundaries without downloading the page again.
+
+Each hall has an optional **Alert when today's schedule changes** checkbox. After the first successful baseline, the extension compares same-day assignments and alerts if that schedule changes. A URL with no row for today is labeled **No current schedule** and may describe an older or future run.
 
 Supported Hall A MIS example:
 
@@ -87,7 +127,9 @@ Only the supported public HTTPS JLab MIS, Hall B PRad, and Hall D GlueX schedule
 
 ## Email notifications
 
-The extension can send every real comment, watched-name entry, shift-summary edit, and DTM alarm to multiple receiving addresses. The extension does not impose an arbitrary recipient-count limit, although Gmail and Microsoft may enforce their own sending or recipient limits. System notifications continue to work when email delivery is off or encounters an error.
+Email is optional. Native system notifications work without connecting any email account. If desired, the extension can also send every real comment, watched-name entry, shift-summary edit, and DTM alarm to multiple receiving addresses. The extension does not impose an arbitrary recipient-count limit, although Gmail and Microsoft may enforce their own sending or recipient limits. System notifications continue to work when email delivery is off or encounters an error.
+
+The **Essential**, **Standard**, and **Everything** levels set both System and Email choices together. Open **Advanced** when you need independent **System** and **Email** switches for a specific alert type. Turning both off preserves the event in **Recent alarms** without actively delivering it. Quiet hours use JLab local time and suppress both delivery channels. **Pause alerts** pauses delivery for 1, 4, or 8 hours; **Resume** ends the pause early. Test notifications bypass these controls.
 
 Open **Email notifications**, select the sending provider, enter one or more receiving addresses separated by commas, spaces, semicolons, or new lines, and select **Save**. Connect the sender, use **Send test email**, and then turn on **Send alert emails**. Test notification, comment-match, and name-match controls do not send email; the dedicated test-email button does.
 
@@ -156,7 +198,7 @@ Each saved name is compared with both the entry's **Author** and its comma-separ
 
 ## Beam-down events
 
-The extension checks the DTM open-events page directly without opening background tabs whenever at least one logbook monitor is enabled. It uses the DTM event ID as the identity and includes the issue title, start time, and elapsed duration in alerts. By default, every successful check that finds an open DTM event sends a new native system notification, providing a recurring reminder at the selected check interval. Turn off **DTM recurring reminders** to silence those repeat alerts; while silenced, the extension notifies only when an event appears, changes to a different event or title, or closes. Select **Open DTM** beside the reminder switch to open JLab's live DTM Open Events page. Duplicate logbook alerts for the same DTM event within one check are suppressed. Event alerts include **Clear** and **Go to entry**.
+The extension checks the DTM open-events page directly without opening background tabs whenever at least one logbook monitor is enabled. It uses the DTM event ID as the identity and includes the issue title, start time, and elapsed duration in alerts. At the default **Standard** level, it notifies when an event opens, changes to a different event or title, or closes. **Everything** also sends a recurring reminder on every successful check while the event remains open. The recurring behavior can be changed separately under **Advanced**. Select **Open DTM** beside that switch to open JLab's live DTM Open Events page. Duplicate logbook alerts for the same DTM event within one check are suppressed. Event alerts include **Clear** and **Go to entry**.
 
 To verify a name without asking the person to create another entry, click **Test name match**. The extension searches the current API results for the newest existing entry where the person is the Author or an Entry Maker, then previews the same alert used for a future new entry. This preview does not alter the monitoring baseline.
 
@@ -165,6 +207,14 @@ To verify a name without asking the person to create another entry, click **Test
 - The monitor checks each enabled logbook using that logbook's individual entry-count or time-based range.
 - It uses your browser's existing JLab authentication. **It does not ask for, read, or store your password.**
 - State is stored only in Chrome's local extension storage.
+- Copied diagnostics exclude receiving addresses, access tokens, refresh tokens, and passwords.
+- The clipboard-write permission is used only when you select **Copy diagnostics**.
 - Chrome must be running for scheduled checks and desktop notifications.
 
 If the popup says **JLab login required**, open one of the enabled logbooks, sign in, then click **Check now** again.
+
+## Development checks and releases
+
+The repository includes saved, synthetic regression fixtures for JLab API wrappers, comment pages, DTM events, and Hall A/B/D shift formats. Run `npm test` for the regression suite and `npm run check` for JavaScript syntax checks. GitHub Actions runs both checks on every push and pull request, then builds an installable artifact.
+
+Run `npm run package` to create `dist/jlab-logbook-comment-monitor-vVERSION.zip` and its `.sha256` checksum. Pushing a tag that exactly matches the manifest version, such as `v2.20.0`, runs the checks, packages the extension, and attaches both files to a GitHub Release. Release notes are generated from the committed changes; user-facing changes are also summarized in `CHANGELOG.md`.

@@ -9,6 +9,13 @@ async function connectEmailProvider() {
     ? await connectMicrosoftEmail(config)
     : await connectGmailEmail();
   await chrome.storage.local.set({ emailAuth: auth, lastEmailError: "" });
+  await recordSourceHealth("email", {
+    status: "ok",
+    lastAttempt: Date.now(),
+    lastSuccess: Date.now(),
+    error: "",
+    detail: `${auth.accountEmail || "Email sender"} connected`
+  });
   return publicEmailAuth(auth);
 }
 
@@ -29,6 +36,7 @@ async function disconnectEmailProvider() {
   }
   await chrome.storage.local.remove("emailAuth");
   await chrome.storage.local.set({ lastEmailError: "" });
+  await recordSourceHealth("email", { status: "idle", lastAttempt: Date.now(), error: "", detail: "Sender disconnected" });
   return { connected: false };
 }
 
@@ -59,12 +67,21 @@ async function sendAlertEmail(alert, options = {}) {
 
   const sentAt = Date.now();
   await chrome.storage.local.set({ lastEmailSentAt: sentAt, lastEmailError: "" });
+  await recordSourceHealth("email", {
+    status: "ok",
+    lastAttempt: sentAt,
+    lastSuccess: sentAt,
+    error: "",
+    checked: config.recipients.length,
+    detail: `Sent to ${config.recipients.length} recipient${config.recipients.length === 1 ? "" : "s"}`
+  });
   return { ok: true, sentAt, recipients: config.recipients.length };
 }
 
 async function recordEmailFailure(error) {
   const message = describeEmailError(error);
   await chrome.storage.local.set({ lastEmailError: message, lastEmailAttempt: Date.now() });
+  await recordSourceHealth("email", { status: "error", lastAttempt: Date.now(), error: message });
   return message;
 }
 
@@ -287,6 +304,7 @@ function buildAlertEmailBody(alert) {
   return [
     alert.systemTitle || "JLab logbook notification",
     "",
+    `Priority: ${alertPriorityLabel(alert.priority)}`,
     alert.message || "A monitored JLab logbook changed.",
     alert.url ? "" : null,
     alert.url ? `Open: ${alert.url}` : null,
@@ -310,8 +328,7 @@ function publicEmailAuth(auth) {
 }
 
 function describeEmailError(error) {
-  const message = error?.message || String(error || "Email delivery failed");
-  return message.replace(/^Error:\s*/i, "").slice(0, 500);
+  return actionableErrorMessage(error || "Email delivery failed", "email").slice(0, 500);
 }
 
 async function readProviderError(response, fallback) {

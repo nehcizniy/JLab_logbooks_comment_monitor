@@ -3,3 +3,4 @@ __MACOSX/
 *.zip
 *.pem
 *.key
+dist/

@@ -1,4 +1,4 @@
-importScripts("email.js", "shift-crew.js");
+importScripts("monitor-policy.js", "health.js", "jlab-parsers.js", "email.js", "shift-crew.js");
 
 const CHECK_ALARM = "jlab-comment-check";
 const DEFAULT_CHECK_INTERVAL_MINUTES = 5;
@@ -22,15 +22,19 @@ const NOTIFICATION_PREFIX = "jlab-comment:";
 const ENTRY_NOTIFICATION_PREFIX = "jlab-entry:";
 const SHIFT_EDIT_NOTIFICATION_PREFIX = "jlab-shift-edit:";
 const EVENT_NOTIFICATION_PREFIX = "jlab-event:";
+const SHIFT_CREW_NOTIFICATION_PREFIX = "jlab-shift-crew:";
 const TEST_NOTIFICATION_ID = "jlab-test";
 const COMMENT_CURSOR_SEED = 58417;
 const MAX_ALERT_HISTORY = 20;
+const COMMENT_RECOVERY_INTERVAL_MILLISECONDS = 24 * 60 * 60 * 1000;
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   const current = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "entryLimit", "commentCounts", "watchedAuthors",
     "pageEventStates", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
-    "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState"
+    "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState",
+    "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState", "settingsSchemaVersion",
+    "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted"
   ]);
   const updates = {};
   if (typeof current.enabled !== "boolean") updates.enabled = true;
@@ -45,7 +49,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!Array.isArray(current.watchedAuthors)) updates.watchedAuthors = [];
   if (!current.pageEventStates) updates.pageEventStates = {};
   if (!Number.isFinite(Number(current.commentCursor))) updates.commentCursor = COMMENT_CURSOR_SEED;
-  if (typeof current.repeatDtmAlerts !== "boolean") updates.repeatDtmAlerts = true;
+  if (typeof current.repeatDtmAlerts !== "boolean") updates.repeatDtmAlerts = false;
   if (!Array.isArray(current.shiftSummaryEditEnabledBooks)) {
     updates.shiftSummaryEditEnabledBooks = current.notifyShiftSummaryEdits === false
       ? []
@@ -65,7 +69,18 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
   updates.shiftCrewSchedules = normalizeShiftCrewSchedules(current.shiftCrewSchedules);
   if (!current.shiftCrewState || typeof current.shiftCrewState !== "object") updates.shiftCrewState = {};
+  updates.alertPreferences = normalizeAlertPreferences(current.alertPreferences);
+  updates.quietHours = normalizeQuietHours(current.quietHours);
+  if (!Number.isFinite(Number(current.notificationsSnoozedUntil))) updates.notificationsSnoozedUntil = 0;
+  updates.healthState = normalizeHealthState(current.healthState);
+  if (!Array.isArray(current.shiftCrewAlertEnabledHalls)) updates.shiftCrewAlertEnabledHalls = [];
+  updates.interfaceMode = normalizeInterfaceMode(current.interfaceMode);
+  if (typeof current.onboardingCompleted !== "boolean") {
+    updates.onboardingCompleted = details?.reason === "install" ? false : true;
+  }
+  updates.settingsSchemaVersion = MONITOR_SETTINGS_SCHEMA_VERSION;
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
+  await ensureMonitorSettings();
   await Promise.all([syncAlarm(), syncShiftCrewAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
@@ -73,6 +88,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  await ensureMonitorSettings();
   await Promise.all([syncAlarm(), syncShiftCrewAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
@@ -112,6 +128,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
+  if (message?.type === "test-setup") {
+    runFullSetupTest()
+      .then((results) => sendResponse({ ok: true, results }))
+      .catch((error) => sendResponse({ ok: false, error: friendlyError(error) }));
+    return true;
+  }
   if (message?.type === "test-author-match") {
     testAuthorMatch()
       .then((match) => sendResponse({ ok: true, match }))
@@ -137,7 +159,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "settings-restored") {
-    Promise.all([syncAlarm(), syncShiftCrewAlarm(), updateAlertBadge({}), checkShiftCrewSchedulesIfDue(true)])
+    ensureMonitorSettings()
+      .then(() => Promise.all([syncAlarm(), syncShiftCrewAlarm(), updateAlertBadge({}), checkShiftCrewSchedulesIfDue(true)]))
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -180,6 +203,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   return false;
 });
+
+async function ensureMonitorSettings() {
+  const state = await chrome.storage.local.get([
+    "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState",
+    "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted"
+  ]);
+  await chrome.storage.local.set({
+    alertPreferences: normalizeAlertPreferences(state.alertPreferences),
+    quietHours: normalizeQuietHours(state.quietHours),
+    notificationsSnoozedUntil: Number.isFinite(Number(state.notificationsSnoozedUntil))
+      ? Number(state.notificationsSnoozedUntil)
+      : 0,
+    healthState: normalizeHealthState(state.healthState),
+    shiftCrewAlertEnabledHalls: Array.isArray(state.shiftCrewAlertEnabledHalls)
+      ? state.shiftCrewAlertEnabledHalls.filter((hall) => SHIFT_CREW_HALLS.includes(hall))
+      : [],
+    interfaceMode: normalizeInterfaceMode(state.interfaceMode),
+    onboardingCompleted: typeof state.onboardingCompleted === "boolean" ? state.onboardingCompleted : true,
+    settingsSchemaVersion: MONITOR_SETTINGS_SCHEMA_VERSION
+  });
+}
 
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
   if (!isMonitorNotification(notificationId) && !isTestNotification(notificationId)) return;
@@ -327,13 +371,16 @@ async function checkForComments() {
     commentIdsInitialized = false,
     commentCursor = COMMENT_CURSOR_SEED,
     commentCursorInitialized = false,
-    repeatDtmAlerts = true,
+    commentRecoveryInitialized = false,
+    lastCommentRecoveryScan = 0,
+    repeatDtmAlerts = false,
     shiftSummaryEditEnabledBooks,
     shiftSummaryFingerprints = {}
   } = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "commentCounts", "initialized", "watchedAuthors", "pageEventStates",
     "renderedCommentCounts", "renderedCommentsInitialized", "seenCommentIds", "commentIdsInitialized",
-    "commentCursor", "commentCursorInitialized", "repeatDtmAlerts", "shiftSummaryEditEnabledBooks", "shiftSummaryFingerprints"
+    "commentCursor", "commentCursorInitialized", "commentRecoveryInitialized", "lastCommentRecoveryScan",
+    "repeatDtmAlerts", "shiftSummaryEditEnabledBooks", "shiftSummaryFingerprints"
   ]);
   if (!enabled) return;
   const books = normalizeMonitoredBooks(monitoredBooks);
@@ -341,8 +388,12 @@ async function checkForComments() {
   const shiftEditEnabledBookSlugs = new Set(
     normalizeEnabledBooks(shiftSummaryEditEnabledBooks, books).map((book) => book.slug)
   );
+  const recoveryDue = Date.now() - Number(lastCommentRecoveryScan || 0) >= COMMENT_RECOVERY_INTERVAL_MILLISECONDS;
 
   await chrome.storage.local.set({ checking: true, lastError: "" });
+  await recordSourceHealth("logbooks", { status: "checking", lastAttempt: Date.now(), error: "" });
+  await recordSourceHealth("comments", { status: "checking", lastAttempt: Date.now(), error: "" });
+  await recordSourceHealth("dtm", { status: "checking", lastAttempt: Date.now(), error: "" });
 
   if (!activeBooks.length) {
     await chrome.storage.local.set({
@@ -357,6 +408,9 @@ async function checkForComments() {
       lastDetectedEvents: 0,
       bookDiagnostics: {}
     });
+    await recordSourceHealth("logbooks", { status: "idle", lastAttempt: Date.now(), error: "", checked: 0, detail: "No logbooks enabled" });
+    await recordSourceHealth("comments", { status: "idle", lastAttempt: Date.now(), error: "", checked: 0, detail: "No logbooks enabled" });
+    await recordSourceHealth("dtm", { status: "idle", lastAttempt: Date.now(), error: "", checked: 0, detail: "No logbooks enabled" });
     return;
   }
 
@@ -434,13 +488,18 @@ async function checkForComments() {
         Number(commentCursor) || COMMENT_CURSOR_SEED,
         commentCursorInitialized,
         entryMetadata,
-        activeBooks
+        activeBooks,
+        {
+          recovery: recoveryDue,
+          recoveryInitialized: commentRecoveryInitialized,
+          seenCommentIds: nextSeenCommentIds
+        }
       ),
       shiftEditEnabledBookSlugs.size
         ? scanLatestShiftSummaryEdits(shiftEditEntriesByBook, shiftSummaryFingerprints)
         : Promise.resolve({ alerts: [], fingerprints: {}, errors: [] })
     ]);
-    commentAlerts.push(...commentScan.alerts);
+    commentAlerts.push(...combineCommentAlerts(commentScan.alerts));
     const shiftEditAlerts = shiftEditResult.alerts;
 
     const queuedEventChanges = new Set();
@@ -453,7 +512,17 @@ async function checkForComments() {
           || previousEvent.identity !== currentEvent.identity
           || previousEvent.title !== currentEvent.title;
         if ((repeatDtmAlerts || eventChanged) && !queuedEventChanges.has(changeKey)) {
-          eventAlerts.push({ ...currentEvent, eventState: "found" });
+          const eventChange = !previousEvent || previousEvent.status !== "open"
+            ? "opened"
+            : previousEvent.identity !== currentEvent.identity || previousEvent.title !== currentEvent.title
+              ? "changed"
+              : "reminder";
+          eventAlerts.push({
+            ...currentEvent,
+            eventState: "found",
+            eventChange,
+            priority: eventChange === "reminder" ? "informational" : "urgent"
+          });
           queuedEventChanges.add(changeKey);
         }
         nextPageEventStates[currentEvent.bookSlug] = currentEvent;
@@ -461,7 +530,7 @@ async function checkForComments() {
         if (previousEvent?.status === "open") {
           const changeKey = `closed:${previousEvent.identity}`;
           if (!queuedEventChanges.has(changeKey)) {
-            eventAlerts.push({ ...previousEvent, eventState: "closed" });
+            eventAlerts.push({ ...previousEvent, eventState: "closed", eventChange: "closed", priority: "important" });
             queuedEventChanges.add(changeKey);
           }
         }
@@ -473,15 +542,18 @@ async function checkForComments() {
       commentCounts: nextCounts,
       renderedCommentCounts: nextRenderedCommentCounts,
       renderedCommentsInitialized: true,
-      seenCommentIds: nextSeenCommentIds,
+      seenCommentIds: pruneSeenCommentIds(nextSeenCommentIds, commentScan.cursor),
       commentIdsInitialized: true,
       commentCursor: commentScan.cursor,
       commentCursorInitialized: commentCursorInitialized || commentScan.caughtUp,
+      commentRecoveryInitialized: commentRecoveryInitialized || recoveryDue,
+      lastCommentRecoveryScan: recoveryDue ? Date.now() : Number(lastCommentRecoveryScan || 0),
       commentScanDiagnostic: commentScan.diagnostic,
       pageEventStates: nextPageEventStates,
       initialized: true,
       checking: false,
       lastCheck: Date.now(),
+      lastSuccessfulCheck: Date.now(),
       lastError: "",
       trackedEntries: entries.length,
       latestShiftSummary: null,
@@ -501,6 +573,29 @@ async function checkForComments() {
       }))
     });
 
+    const completedAt = Date.now();
+    await recordSourceHealth("logbooks", {
+      status: "ok",
+      lastSuccess: completedAt,
+      error: "",
+      checked: entries.length,
+      detail: `${activeBooks.length} API result page${activeBooks.length === 1 ? "" : "s"} · ${entries.length} entries scanned`
+    });
+    await recordSourceHealth("comments", {
+      status: "ok",
+      lastSuccess: completedAt,
+      error: "",
+      checked: commentScan.checked,
+      detail: commentScan.diagnostic
+    });
+    await recordSourceHealth("dtm", {
+      status: "ok",
+      lastSuccess: completedAt,
+      error: "",
+      checked: 1,
+      detail: dtmEvent.diagnostic || dtmEvent.title || "DTM checked"
+    });
+
     for (const entry of commentAlerts) await showCommentNotification(entry);
     for (const entry of watchedNameAlerts) await showWatchedNameNotification(entry);
     for (const entry of shiftEditAlerts) await showShiftSummaryEditNotification(entry);
@@ -508,6 +603,10 @@ async function checkForComments() {
   } catch (error) {
     const message = friendlyError(error);
     await chrome.storage.local.set({ checking: false, lastCheck: Date.now(), lastError: message });
+    const failedAt = Date.now();
+    await recordSourceHealth("logbooks", { status: "error", lastAttempt: failedAt, error: message });
+    await recordSourceHealth("comments", { status: "error", lastAttempt: failedAt, error: message });
+    await recordSourceHealth("dtm", { status: "error", lastAttempt: failedAt, error: message });
     throw error;
   }
 }
@@ -752,78 +851,23 @@ async function fetchDtmEvent() {
   if (response.status === 401 || response.status === 403) throw new Error("DTM_AUTH_REQUIRED");
   if (!response.ok) throw new Error(`DTM returned HTTP ${response.status}`);
 
-  const html = await response.text();
-  const eventMatch = html.match(/<h3\b[^>]*id=["']header-(\d+)["'][^>]*>([\s\S]*?)<\/h3>/i);
-  if (!eventMatch) {
-    return {
-      status: "closed",
-      identity: null,
-      title: "No open event",
-      url: pageUrl,
-      comments: {},
-      commentRecords: {},
-      diagnostic: "DTM reports no open events"
-    };
-  }
-
-  const eventId = eventMatch[1];
-  const header = eventMatch[2];
-  const titleMatch = header.match(/class=["'][^"']*\baccordion-event-title\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
-  const durationMatch = header.match(/class=["'][^"']*\bevent-header-time-elapsed-wrap\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
-  const periodMatch = header.match(/class=["'][^"']*\bevent-header-period\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
-  const title = htmlToText(titleMatch?.[1]) || `Open DTM event #${eventId}`;
-  const duration = htmlToText(durationMatch?.[1]);
-  const start = htmlToText(periodMatch?.[1]);
-  const detail = [title, start && `Started ${start}`, duration].filter(Boolean).join(" · ");
-  const url = `${pageUrl}?event_id=${encodeURIComponent(eventId)}`;
-
-  return {
-    status: "open",
-    identity: `dtm:${eventId}`,
-    title,
-    detail,
-    url,
-    comments: {},
-    commentRecords: {},
-    diagnostic: `Direct DTM check detected event #${eventId}: ${detail}`
-  };
+  return parseDtmEventHtml(await response.text(), pageUrl);
 }
 
-function parseCommentCount(entry) {
-  const raw = entry?.numcomments ?? entry?.comment_count ?? entry?.commentCount ?? entry?.comments ?? 0;
-  return extractNumericCount(raw);
-}
-
-function extractNumericCount(raw, depth = 0) {
-  if (depth > 5 || raw === null || typeof raw === "undefined") return 0;
-  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
-  if (typeof raw === "string") {
-    const match = raw.match(/\d+/);
-    return match ? Number(match[0]) : 0;
-  }
-  if (Array.isArray(raw)) {
-    return raw.reduce((maximum, value) => Math.max(maximum, extractNumericCount(value, depth + 1)), 0);
-  }
-  if (typeof raw === "object") {
-    for (const key of ["count", "value", "total", "content", "numcomments"]) {
-      if (key in raw) return extractNumericCount(raw[key], depth + 1);
-    }
-    return Object.values(raw).reduce(
-      (maximum, value) => Math.max(maximum, extractNumericCount(value, depth + 1)),
-      0
-    );
-  }
-  return 0;
-}
-
-async function scanNewComments(startCursor, notify, entryMetadata, activeBooks) {
-  let cursor = Math.max(COMMENT_CURSOR_SEED, Number(startCursor) || 0);
+async function scanNewComments(startCursor, notify, entryMetadata, activeBooks, options = {}) {
+  const plan = createCommentScanPlan(startCursor, options.recovery === true, COMMENT_CURSOR_SEED);
+  const { originalCursor, scanStart, maximumChecks, missLimit, recovery } = plan;
+  const seenCommentIds = options.seenCommentIds && typeof options.seenCommentIds === "object"
+    ? options.seenCommentIds
+    : {};
+  let cursor = originalCursor;
   let consecutiveMisses = 0;
   let checked = 0;
   const alerts = [];
   const activeBookSlugs = new Set(activeBooks.map((book) => book.slug));
 
-  for (let id = cursor + 1; checked < 200 && consecutiveMisses < 20; id += 1) {
+  for (let id = scanStart + 1; checked < maximumChecks; id += 1) {
+    if (id > originalCursor && consecutiveMisses >= missLimit) break;
     const comment = await fetchCommentCandidate(id);
     checked += 1;
     if (!comment) {
@@ -832,7 +876,10 @@ async function scanNewComments(startCursor, notify, entryMetadata, activeBooks) 
     }
 
     consecutiveMisses = 0;
-    cursor = id;
+    cursor = Math.max(cursor, id);
+    const seenKey = `comment:${id}`;
+    const alreadySeen = seenCommentIds[seenKey] === true;
+    seenCommentIds[seenKey] = true;
     let metadata = null;
     const commentBookSlugs = new Set(comment.bookSlugs || (comment.bookSlug ? [comment.bookSlug] : []));
     if (comment.lognumber) {
@@ -844,7 +891,8 @@ async function scanNewComments(startCursor, notify, entryMetadata, activeBooks) 
     }
 
     const matchedBook = activeBooks.find((book) => commentBookSlugs.has(book.slug));
-    if (notify && matchedBook && activeBookSlugs.has(matchedBook.slug)) {
+    const canNotifyRecoveredComment = !recovery || options.recoveryInitialized === true || id > originalCursor;
+    if (notify && !alreadySeen && canNotifyRecoveredComment && matchedBook && activeBookSlugs.has(matchedBook.slug)) {
       alerts.push({
         ...metadata,
         ...comment,
@@ -858,13 +906,21 @@ async function scanNewComments(startCursor, notify, entryMetadata, activeBooks) 
   return {
     cursor,
     alerts,
-    caughtUp: consecutiveMisses >= 20,
-    diagnostic: `Scanned ${checked} comment IDs after ${startCursor}; latest existing ID ${cursor}`
+    checked,
+    caughtUp: consecutiveMisses >= missLimit,
+    diagnostic: `${recovery ? "Recovery" : "Regular"} scan checked ${checked} comment IDs from #${scanStart + 1}; latest existing ID #${cursor}`
   };
 }
 
+function pruneSeenCommentIds(value, cursor) {
+  const minimumId = Math.max(COMMENT_CURSOR_SEED, Number(cursor || 0) - 5000);
+  return Object.fromEntries(Object.entries(value || {}).filter(([key]) => {
+    const match = String(key).match(/(\d+)$/);
+    return !match || Number(match[1]) >= minimumId;
+  }));
+}
+
 async function fetchCommentCandidate(id) {
-  const commentUrl = `https://logbooks.jlab.org/comment/${id}#comment-${id}`;
   const response = await fetch(`https://logbooks.jlab.org/comment/${id}?monitor_time=${Date.now()}`, {
     credentials: "include",
     cache: "no-store",
@@ -874,78 +930,7 @@ async function fetchCommentCandidate(id) {
   if (response.status === 404 || response.status === 410) return null;
   if (!response.ok) return null;
 
-  const html = await response.text();
-  // JLab includes a login form in the sidebar of public pages, even when the
-  // requested comment is fully visible. Only report an authentication failure
-  // when access is denied and the requested comment is absent.
-  const commentIdentity = new RegExp(`(?:/comment/${id}\\b|comment-${id}\\b)`, "i");
-  if (/access denied/i.test(html) && !commentIdentity.test(html)) throw new Error("AUTH_REQUIRED");
-  if (/page\s+not\s+found|requested\s+page\s+could\s+not\s+be\s+found|does\s+not\s+exist/i.test(html)) return null;
-  if (!commentIdentity.test(html)) return null;
-
-  const entryHeadingMatch = html.match(/<h1\b[^>]*class=["'][^"']*\bnode-title\b[^"']*["'][^>]*>[\s\S]*?<a\b[^>]*href=["'][^"']*\/entry\/(\d+)[^"']*["'][^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h1>/i);
-  const entryMatch = entryHeadingMatch || html.match(/\/entry\/(\d+)/i);
-  const bookCellMatch = html.match(/<th\b[^>]*>\s*Logbooks?:?\s*<\/th>\s*<td\b[^>]*>([\s\S]*?)<\/td>/i);
-  const bookSlugs = [...String(bookCellMatch?.[1] || "").matchAll(/\/book\/([a-z0-9_-]+)/gi)]
-    .map((match) => match[1].toLocaleLowerCase())
-    .filter((slug, index, values) => values.indexOf(slug) === index);
-  const createdMatch = html.match(/class=["'][^"']*\bauthor-datetime\b[^"']*["'][^>]*>[\s\S]*?Lognumber[\s\S]*?<time\b[^>]*datetime=["']([^"']+)["']/i);
-  const title = entryHeadingMatch?.[2]
-    ? htmlToText(entryHeadingMatch[2])
-    : `Entry containing comment #${id}`;
-
-  return {
-    commentId: String(id),
-    lognumber: entryMatch?.[1] || null,
-    bookSlug: bookSlugs[0] || null,
-    bookSlugs,
-    title,
-    created: createdMatch?.[1] || null,
-    commentUrl,
-    url: commentUrl
-  };
-}
-
-function htmlToText(value) {
-  return String(value || "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#(?:39|x27);/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeEntries(payload) {
-  if (Array.isArray(payload)) return payload;
-
-  if (payload?.stat && payload.stat !== "ok") {
-    throw new Error(payload.message || "The JLab API reported an error");
-  }
-
-  // JLab's documented response is { stat: "ok", data: { ..., entries: [] } }.
-  if (Array.isArray(payload?.data?.entries)) return payload.data.entries;
-
-  for (const key of ["entries", "data", "results", "items"]) {
-    if (Array.isArray(payload?.[key])) return payload[key];
-  }
-
-  // Be tolerant of equivalent wrappers used by older/newer Drupal endpoints.
-  for (const wrapper of Object.values(payload || {})) {
-    if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) continue;
-    for (const key of ["entries", "results", "items"]) {
-      if (Array.isArray(wrapper[key])) return wrapper[key];
-    }
-  }
-
-  if (payload && typeof payload === "object") {
-    const entryValues = Object.values(payload).filter(
-      (value) => value && typeof value === "object" && !Array.isArray(value) && "lognumber" in value
-    );
-    if (entryValues.length) return entryValues;
-  }
-  throw new Error("The JLab API returned an unfamiliar response format");
+  return parseCommentPageHtml(await response.text(), id);
 }
 
 async function showCommentNotification(entry, recordHistory = true) {
@@ -953,6 +938,8 @@ async function showCommentNotification(entry, recordHistory = true) {
   const plural = entry.added === 1 ? "comment" : "comments";
   await showSystemNotification({
     id: notificationId,
+    alertType: "comments",
+    priority: "important",
     systemTitle: `${entry.book}: ${cleanTitle(entry.title)}`,
     message: entry.created
       ? `Entry time: ${formatEntryTime(entry.created)} · ${entry.added} new ${plural}`
@@ -969,6 +956,8 @@ async function showWatchedNameNotification(entry, recordHistory = true) {
     || `Author: ${displayAuthor(entry.author)}`;
   await showSystemNotification({
     id: notificationId,
+    alertType: "watchedNames",
+    priority: "important",
     systemTitle: `${entry.book}: New entry — ${matchSummary}`,
     message: `${cleanTitle(entry.title)}\nEntry time: ${formatEntryTime(entry.created)}`,
     url: `${ENTRY_ROOT}${encodeURIComponent(entry.lognumber)}`,
@@ -980,6 +969,8 @@ async function showShiftSummaryEditNotification(entry) {
   const notificationId = `${SHIFT_EDIT_NOTIFICATION_PREFIX}${entry.bookSlug || entry.book}:${entry.lognumber}`;
   await showSystemNotification({
     id: notificationId,
+    alertType: "shiftSummaryEdits",
+    priority: "important",
     systemTitle: `${entry.book}: Latest shift summary edited`,
     message: `${cleanTitle(entry.title)}\nEntry time: ${formatEntryTime(entry.created)}`,
     url: `${ENTRY_ROOT}${encodeURIComponent(entry.lognumber)}`
@@ -987,13 +978,27 @@ async function showShiftSummaryEditNotification(entry) {
 }
 
 async function showEventNotification(event) {
-  const state = event.eventState === "closed" ? "closed" : "found";
+  const state = event.eventChange || (event.eventState === "closed" ? "closed" : "opened");
   const notificationId = `${EVENT_NOTIFICATION_PREFIX}${state}:${stableHash(event.identity || event.title)}`;
   await showSystemNotification({
     id: notificationId,
+    alertType: "dtmEvents",
+    priority: event.priority || (state === "reminder" ? "informational" : state === "closed" ? "important" : "urgent"),
     systemTitle: `DTM event ${state}`,
     message: event.detail || event.title || `Beam-down event ${state}`,
     url: event.url || `https://logbooks.jlab.org/book/${event.bookSlug || event.book.toLocaleLowerCase()}`
+  });
+}
+
+async function showShiftCrewChangeNotification(schedule) {
+  const notificationId = `${SHIFT_CREW_NOTIFICATION_PREFIX}${schedule.hall}:${schedule.dateCode || "current"}`;
+  await showSystemNotification({
+    id: notificationId,
+    alertType: "shiftCrewChanges",
+    priority: "informational",
+    systemTitle: `${schedule.hallName}: Shift schedule changed`,
+    message: `${schedule.dateLabel || "Today's schedule"} was updated. Open the schedule to review the crew assignments.`,
+    url: schedule.url
   });
 }
 
@@ -1006,10 +1011,78 @@ function stableHash(value) {
 async function showTestNotification() {
   await showSystemNotification({
     id: TEST_NOTIFICATION_ID,
+    priority: "informational",
     systemTitle: "JLab monitor test",
     message: "Chrome system notifications are working.",
     url: "https://logbooks.jlab.org/book/hclog"
   });
+}
+
+async function runFullSetupTest() {
+  const state = await chrome.storage.local.get([
+    "monitoredBooks", "enabledBooks", "shiftCrewSchedules", "emailConfig", "emailAuth"
+  ]);
+  const results = [];
+  const run = async (key, label, action) => {
+    try {
+      const detail = await action();
+      results.push({ key, label, status: "ok", detail });
+    } catch (error) {
+      results.push({ key, label, status: "error", detail: friendlyError(error) });
+    }
+  };
+
+  await run("system", "System notification", async () => {
+    await showTestNotification();
+    return "Test notification created";
+  });
+
+  const activeBooks = normalizeEnabledBooks(state.enabledBooks, normalizeMonitoredBooks(state.monitoredBooks));
+  if (!activeBooks.length) {
+    results.push({ key: "jlab", label: "JLab logbooks", status: "skipped", detail: "No logbook is enabled" });
+  } else {
+    await run("jlab", "JLab logbooks", async () => {
+      const entries = await fetchBook(activeBooks[0]);
+      return `${activeBooks[0].name} loaded ${entries.length} entries`;
+    });
+  }
+
+  await run("dtm", "DTM events", async () => {
+    const event = await fetchDtmEvent();
+    return event.status === "open" ? `Open event: ${event.title}` : "Connected; no open event";
+  });
+
+  const schedules = normalizeShiftCrewSchedules(state.shiftCrewSchedules);
+  const configuredHalls = SHIFT_CREW_HALLS.filter((hall) => schedules[hall]);
+  if (!configuredHalls.length) {
+    results.push({ key: "shiftCrew", label: "Shift Crew", status: "skipped", detail: "No schedules configured" });
+  } else {
+    await run("shiftCrew", "Shift Crew", async () => {
+      const result = await checkShiftCrewSchedules();
+      const failures = Object.values(result.state || {}).filter((item) => item.status === "error");
+      if (failures.length) throw new Error(result.error || `${failures.length} schedule checks failed`);
+      return `${configuredHalls.length} configured schedule${configuredHalls.length === 1 ? "" : "s"} loaded`;
+    });
+  }
+
+  const emailConfig = normalizeEmailConfig(state.emailConfig);
+  const emailConnected = state.emailAuth?.provider === emailConfig.provider;
+  if (!emailConfig.recipients.length || !emailConnected) {
+    results.push({
+      key: "email",
+      label: "Email",
+      status: "skipped",
+      detail: !emailConfig.recipients.length
+        ? "No receiving addresses"
+        : "Sending account is not connected"
+    });
+  } else {
+    await run("email", "Email", async () => {
+      const result = await testEmailDelivery();
+      return `Test sent to ${result.recipients} address${result.recipients === 1 ? "" : "es"}`;
+    });
+  }
+  return results;
 }
 
 async function testAuthorMatch() {
@@ -1063,16 +1136,24 @@ async function showSystemNotification(alert) {
   const notificationId = createNotificationInstanceId(alert.id);
   const isTest = alert.id === TEST_NOTIFICATION_ID;
   const recordHistory = !isTest && alert.recordHistory !== false;
-  const { pendingAlerts = {}, alertHistory = [] } = await chrome.storage.local.get([
-    "pendingAlerts", "alertHistory"
+  const bypassDeliveryControls = isTest || alert.recordHistory === false;
+  const state = await chrome.storage.local.get([
+    "pendingAlerts", "alertHistory", "alertPreferences", "quietHours", "notificationsSnoozedUntil"
   ]);
+  const pendingAlerts = state.pendingAlerts || {};
+  const alertHistory = state.alertHistory || [];
   const createdAt = Date.now();
-  pendingAlerts[notificationId] = {
-    ...alert,
-    id: notificationId,
-    baseId: alert.id,
-    createdAt
-  };
+  const priority = normalizeAlertPriority(alert.priority);
+  const deliverSystem = bypassDeliveryControls || shouldDeliverAlert(alert.alertType, "system", state, createdAt);
+  const deliverEmail = recordHistory && shouldDeliverAlert(alert.alertType, "email", state, createdAt);
+  if (deliverSystem) {
+    pendingAlerts[notificationId] = {
+      ...alert,
+      id: notificationId,
+      baseId: alert.id,
+      createdAt
+    };
+  }
   const nextAlertHistory = recordHistory
     ? [{
         id: notificationId,
@@ -1080,26 +1161,33 @@ async function showSystemNotification(alert) {
         systemTitle: alert.systemTitle,
         message: alert.message,
         url: alert.url || "",
-        createdAt
+        createdAt,
+        alertType: alert.alertType || "",
+        priority,
+        deliveredSystem: deliverSystem,
+        deliveredEmail: deliverEmail
       }, ...normalizeAlertHistory(alertHistory)].slice(0, MAX_ALERT_HISTORY)
     : normalizeAlertHistory(alertHistory);
   await chrome.storage.local.set({ pendingAlerts, alertHistory: nextAlertHistory });
   await updateAlertBadge(pendingAlerts);
-  await chrome.notifications.create(notificationId, {
-    type: "basic",
-    iconUrl: "icon.png",
-    title: alert.systemTitle,
-    message: alert.message,
-    contextMessage: "JLab Logbook",
-    requireInteraction: true,
-    priority: 2,
-    buttons: isTest
-      ? [{ title: "Clear" }]
-      : [{ title: "Clear" }, { title: "Go to entry" }]
-  });
-  if (recordHistory) {
+  if (deliverSystem) {
+    await chrome.notifications.create(notificationId, {
+      type: "basic",
+      iconUrl: "icon.png",
+      title: alert.systemTitle,
+      message: alert.message,
+      contextMessage: `${alertPriorityLabel(priority)} · JLab Logbook`,
+      requireInteraction: true,
+      priority: chromeNotificationPriority(priority),
+      buttons: isTest
+        ? [{ title: "Clear" }]
+        : [{ title: "Clear" }, { title: "Go to entry" }]
+    });
+  }
+  if (deliverEmail) {
     await sendAlertEmail(alert).catch(recordEmailFailure);
   }
+  return { notificationId, deliverSystem, deliverEmail };
 }
 
 function normalizeAlertHistory(value) {
@@ -1230,10 +1318,7 @@ function formatEntryTime(created) {
 }
 
 function friendlyError(error) {
-  if (error?.message === "AUTH_REQUIRED") {
-    return "JLab login required. Open either logbook, sign in, then click Check now.";
-  }
-  return error?.message || "Unable to check the logbooks";
+  return actionableErrorMessage(error, "monitor");
 }
 
 async function clearAllNotifications() {
@@ -1251,7 +1336,8 @@ function isMonitorNotification(id) {
   return id.startsWith(NOTIFICATION_PREFIX)
     || id.startsWith(ENTRY_NOTIFICATION_PREFIX)
     || id.startsWith(SHIFT_EDIT_NOTIFICATION_PREFIX)
-    || id.startsWith(EVENT_NOTIFICATION_PREFIX);
+    || id.startsWith(EVENT_NOTIFICATION_PREFIX)
+    || id.startsWith(SHIFT_CREW_NOTIFICATION_PREFIX);
 }
 
 function isTestNotification(id) {

@@ -60,13 +60,16 @@ function normalizeShiftScheduleUrl(value) {
 
 async function saveAndCheckShiftCrewSchedules(value) {
   const schedules = normalizeShiftCrewSchedules(value, { strict: true });
-  const { shiftCrewState = {} } = await chrome.storage.local.get("shiftCrewState");
+  const { shiftCrewState = {}, shiftCrewAlertEnabledHalls = [] } = await chrome.storage.local.get([
+    "shiftCrewState", "shiftCrewAlertEnabledHalls"
+  ]);
   const nextState = Object.fromEntries(
-    Object.entries(shiftCrewState).filter(([hall]) => schedules[hall])
+    Object.entries(shiftCrewState).filter(([hall, result]) => schedules[hall] && result?.url === schedules[hall])
   );
   await chrome.storage.local.set({
     shiftCrewSchedules: schedules,
     shiftCrewState: nextState,
+    shiftCrewAlertEnabledHalls: shiftCrewAlertEnabledHalls.filter((hall) => schedules[hall]),
     shiftCrewError: ""
   });
   return checkShiftCrewSchedules();
@@ -114,8 +117,8 @@ function checkShiftCrewSchedules() {
 }
 
 async function runShiftCrewSchedulesCheck() {
-  const { shiftCrewSchedules, shiftCrewState = {} } = await chrome.storage.local.get([
-    "shiftCrewSchedules", "shiftCrewState"
+  const { shiftCrewSchedules, shiftCrewState = {}, shiftCrewAlertEnabledHalls = [] } = await chrome.storage.local.get([
+    "shiftCrewSchedules", "shiftCrewState", "shiftCrewAlertEnabledHalls"
   ]);
   const schedules = normalizeShiftCrewSchedules(shiftCrewSchedules);
   const configuredHalls = SHIFT_CREW_HALLS.filter((hall) => schedules[hall]);
@@ -127,15 +130,25 @@ async function runShiftCrewSchedulesCheck() {
       lastShiftCrewCheck: 0
     });
     await syncShiftCrewAlarm();
+    await recordSourceHealth("shiftCrew", {
+      status: "idle",
+      lastAttempt: Date.now(),
+      error: "",
+      checked: 0,
+      detail: "No shift schedules configured"
+    });
     return { schedules, state: {}, checkedAt: 0 };
   }
 
   await chrome.storage.local.set({ shiftCrewChecking: true, shiftCrewError: "" });
+  await recordSourceHealth("shiftCrew", { status: "checking", lastAttempt: Date.now(), error: "" });
   const checkedAt = Date.now();
   const nextState = Object.fromEntries(
     Object.entries(shiftCrewState).filter(([hall]) => schedules[hall])
   );
   const errors = [];
+  const changeAlerts = [];
+  const alertEnabledHalls = new Set(Array.isArray(shiftCrewAlertEnabledHalls) ? shiftCrewAlertEnabledHalls : []);
   const results = await Promise.all(configuredHalls.map(async (hall) => {
     try {
       return [hall, await fetchShiftCrewSchedule(schedules[hall], hall, checkedAt)];
@@ -152,7 +165,19 @@ async function runShiftCrewSchedulesCheck() {
       }];
     }
   }));
-  for (const [hall, result] of results) nextState[hall] = result;
+  for (const [hall, result] of results) {
+    const previous = shiftCrewState[hall];
+    if (
+      result.status !== "error"
+      && alertEnabledHalls.has(hall)
+      && previous?.scheduleFingerprint
+      && previous.dateCode === result.dateCode
+      && previous.scheduleFingerprint !== result.scheduleFingerprint
+    ) {
+      changeAlerts.push(result);
+    }
+    nextState[hall] = result;
+  }
   const shiftCrewError = errors.join(" · ");
   await chrome.storage.local.set({
     shiftCrewState: nextState,
@@ -161,6 +186,16 @@ async function runShiftCrewSchedulesCheck() {
     lastShiftCrewCheck: checkedAt
   });
   await syncShiftCrewAlarm();
+  const successful = results.filter(([, result]) => result.status !== "error").length;
+  const healthUpdate = {
+    status: errors.length ? "error" : "ok",
+    error: shiftCrewError,
+    checked: configuredHalls.length,
+    detail: `${successful}/${configuredHalls.length} configured schedules read`
+  };
+  if (successful) healthUpdate.lastSuccess = checkedAt;
+  await recordSourceHealth("shiftCrew", healthUpdate);
+  for (const schedule of changeAlerts) await showShiftCrewChangeNotification(schedule);
   return { schedules, state: nextState, checkedAt, error: shiftCrewError };
 }
 
@@ -173,13 +208,27 @@ async function fetchShiftCrewSchedule(url, hall, checkedAt = Date.now()) {
   });
   if (!response.ok) throw new Error(`schedule returned HTTP ${response.status}`);
   const html = await response.text();
+  const parsed = parseShiftScheduleHtml(html, checkedAt);
   return {
     hall,
     hallName: SHIFT_CREW_LABELS[hall],
     url,
     checkedAt,
-    ...parseShiftScheduleHtml(html, checkedAt)
+    ...parsed,
+    scheduleFingerprint: createShiftCrewFingerprint(parsed)
   };
+}
+
+function createShiftCrewFingerprint(schedule) {
+  const content = JSON.stringify({
+    dateCode: schedule?.dateCode || "",
+    status: schedule?.status || "",
+    shifts: schedule?.shifts || [],
+    hourlyCrew: schedule?.hourlyCrew || []
+  });
+  let hash = 0;
+  for (const character of content) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  return `${content.length}:${Math.abs(hash).toString(36)}`;
 }
 
 function buildShiftScheduleFetchUrl(value, now = Date.now()) {
@@ -228,6 +277,7 @@ function parseMisShiftScheduleHtml(html, now = Date.now()) {
     return {
       title,
       status: "no-shift",
+      warning: "No current schedule row was found. This page may describe an older or future run.",
       dateCode: dateParts.dateCode,
       dateLabel: dateParts.dateLabel,
       shifts: SHIFT_CREW_SHIFTS.map((shift) => ({ ...shift, workers: [], status: "No shift scheduled" }))
@@ -263,6 +313,7 @@ function parseHallBPradScheduleHtml(html, now = Date.now()) {
       format: "hallb-prad",
       title,
       status: "no-shift",
+      warning: "No current dated row was found in the Hall B schedule.",
       dateCode: dateParts.dateCode,
       dateLabel: dateParts.dateLabel,
       hourlyCrew: []
@@ -312,6 +363,7 @@ function parseHallDGluexScheduleHtml(html, now = Date.now()) {
       format: "halld-gluex",
       title,
       status: "no-shift",
+      warning: "No current dated row was found in the Hall D schedule.",
       dateCode: dateParts.dateCode,
       dateLabel: dateParts.dateLabel,
       hourlyCrew: []
@@ -489,7 +541,5 @@ function decodeShiftCrewEntities(value) {
 }
 
 function describeShiftCrewError(error) {
-  return String(error?.message || error || "shift schedule check failed")
-    .replace(/^Error:\s*/i, "")
-    .slice(0, 300);
+  return actionableErrorMessage(error || "shift schedule check failed", "shiftCrew").slice(0, 300);
 }
