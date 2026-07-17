@@ -126,6 +126,8 @@ test("compares extension releases and selects the packaged ZIP", () => {
   assert.equal(context.createExtensionUpdateState(release, "2.23.0", 123).status, "current");
   assert.equal(context.createExtensionUpdateState(release, "2.24.0", 123).status, "development");
   assert.equal(context.normalizeExtensionUpdateState({ status: "available", latestVersion: "2.23.0" }, "2.23.0").status, "current");
+  assert.match(context.friendlyExtensionUpdateError(new Error("GitHub releases returned HTTP 404")), /No published extension release/i);
+  assert.match(context.friendlyExtensionUpdateError(new Error("GitHub releases returned HTTP 403")), /temporarily limited/i);
 });
 
 test("manifest and popup retain required extension structure", () => {

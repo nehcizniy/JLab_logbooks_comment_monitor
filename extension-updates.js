@@ -29,6 +29,16 @@ function isNewerExtensionVersion(candidate, installed) {
   return compareExtensionVersions(candidate, installed) > 0;
 }
 
+function friendlyExtensionUpdateError(error) {
+  const message = String(error?.message || error || "Update check failed");
+  if (/HTTP 404/i.test(message)) return "No published extension release is available yet.";
+  if (/HTTP 403|rate limit/i.test(message)) return "GitHub temporarily limited update checks. Try again later.";
+  if (/failed to fetch|network|load failed/i.test(message)) {
+    return "Could not reach GitHub. Check the network or VPN and try again.";
+  }
+  return message.replace(/^Error:\s*/i, "").slice(0, 240);
+}
+
 function normalizeExtensionRelease(value) {
   if (!value || typeof value !== "object" || value.draft || value.prerelease) {
     throw new Error("No stable extension release was found");

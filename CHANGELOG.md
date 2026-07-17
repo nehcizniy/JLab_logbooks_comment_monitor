@@ -8,6 +8,7 @@
 - Added a built-in update and rollback guide that preserves the fixed extension ID and recommends a settings backup.
 - Kept update notifications separate from JLab alert levels, quiet hours, email delivery, and Recent alarms.
 - Added regression coverage for version comparison and release-asset selection.
+- Replaced GitHub's raw HTTP 404 response with a clear message when no release has been published yet.
 
 ## 2.22.0
 

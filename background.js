@@ -139,7 +139,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "check-extension-update") {
     checkExtensionUpdate({ notify: false })
       .then((state) => sendResponse({ ok: true, state }))
-      .catch((error) => sendResponse({ ok: false, error: friendlyUpdateError(error) }));
+      .catch((error) => sendResponse({ ok: false, error: friendlyExtensionUpdateError(error) }));
     return true;
   }
   if (message?.type === "clear-notifications") {
@@ -350,18 +350,11 @@ async function checkExtensionUpdate(options = {}) {
       status: "error",
       currentVersion,
       checkedAt: Date.now(),
-      error: friendlyUpdateError(error)
+      error: friendlyExtensionUpdateError(error)
     };
     await chrome.storage.local.set({ extensionUpdateState: state });
     throw error;
   }
-}
-
-function friendlyUpdateError(error) {
-  const message = String(error?.message || error || "Update check failed");
-  if (/HTTP 403|rate limit/i.test(message)) return "GitHub temporarily limited update checks. Try again later.";
-  if (/failed to fetch|network|load failed/i.test(message)) return "Could not reach GitHub. Check the network or VPN and try again.";
-  return message.replace(/^Error:\s*/i, "").slice(0, 240);
 }
 
 async function showExtensionUpdateNotification(state) {
