@@ -6,6 +6,8 @@
 2. Keep the monitor switch on and use the recommended **Standard** alert level. Select **Test my setup** once to verify system notifications and JLab access.
 3. Keep Chrome running. Logbook tabs do not need to stay open; use **Go to entry** when an alert appears.
 
+The popup also includes **New entry**, which opens JLab's authenticated New Log Entry form directly, and **Logbooks**, which opens the main JLab Logbooks page. Entry content and credentials stay on JLab's website; the extension does not read or store what you type into the entry form.
+
 This Chrome extension checks any user-selected JLab logbooks on a selectable 5, 10, 15, 30, or 60 minute interval. Each logbook has its own adjustable check range: the latest 1–1000 entries, the latest 1–720 hours, or the latest 1–30 days. The default is 100 entries. HCLOG, HBLOG, and SOLID are included initially, and every added logbook can be turned on or off independently. It monitors new comment permalinks and beam-down event state. It can also notify you when selected people appear as an entry's **Author** or **Entry Maker**.
 
 The extension has two interface modes using the same monitoring engine. **Simple** is the default and keeps common controls on one page. **Advanced** exposes every per-logbook, delivery, Shift Crew, diagnostic, email, and backup setting. Use the **Simple / Advanced** buttons near the top of the popup to switch instantly. Switching does not reset monitoring baselines, settings, active notifications, or alarm history.

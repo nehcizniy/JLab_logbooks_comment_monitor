@@ -4,6 +4,7 @@
 
 - Moved DTM event status, the live DTM link, and recurring-reminder control into a dedicated DTM tab.
 - Made the DTM tab available in both Simple and Advanced interface modes.
+- Added New entry and Logbooks shortcuts beneath the popup's Check now and Clear alerts controls.
 
 ## 2.23.0
 

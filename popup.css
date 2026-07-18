@@ -101,7 +101,11 @@ body[data-interface-mode="simple"] .shift-crew-body { display: grid !important; 
 body[data-interface-mode="simple"] .shift-alert-toggle { display: none !important; }
 body[data-interface-mode="simple"] .shift-crew-hover-card { position: static; display: grid; width: auto; margin-top: 8px; padding: 8px 9px; border-color: #dce5ef; box-shadow: none; }
 
-.top-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 12px; }
+.action-stack { display: grid; gap: 7px; margin-bottom: 12px; }
+.top-actions, .logbook-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.logbook-actions button { min-height: 34px; border-color: #b9cce1; background: #f8fbff; color: #365d87; font-size: 10px; }
+.logbook-actions button:hover { background: #edf4fc; }
+#new-entry { border-color: #8eabc9; background: #edf4fc; color: #274d78; }
 .recent-alarms-card { margin-top: 10px; padding: 11px 12px; border: 1px solid #d9e1ec; border-radius: 11px; background: #fff; }
 .extension-update-card { margin-top: 10px; padding: 11px 12px; border: 1px solid #cbd9ea; border-radius: 11px; background: #f8fbff; }
 .extension-update-body { display: grid; gap: 8px; margin-top: 9px; }

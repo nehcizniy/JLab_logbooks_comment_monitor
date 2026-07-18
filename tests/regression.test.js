@@ -137,6 +137,7 @@ test("manifest and popup retain required extension structure", () => {
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
+  const popupJs = fs.readFileSync(path.join(root, "popup.js"), "utf8");
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
   assert.equal(ids.length, new Set(ids).size);
   for (const id of [
@@ -145,7 +146,7 @@ test("manifest and popup retain required extension structure", () => {
     "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide",
     "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
     "open-previous-versions", "dtm-status", "dtm-status-detail", "dtm-status-dot",
-    "open-dtm", "repeat-dtm-alerts"
+    "open-dtm", "repeat-dtm-alerts", "new-entry", "open-logbooks"
   ]) {
     assert.equal(ids.includes(id), true, `missing #${id}`);
   }
@@ -153,6 +154,8 @@ test("manifest and popup retain required extension structure", () => {
   assert.match(html, /data-interface-mode-button="advanced"/);
   assert.match(html, /data-popup-tab="dtm"/);
   assert.match(html, /data-popup-view="dtm"/);
+  assert.match(popupJs, /https:\/\/logbooks\.jlab\.org\/node\/add\/logentry/);
+  assert.match(popupJs, /LOGBOOKS_HOME_URL = "https:\/\/logbooks\.jlab\.org\/"/);
   assert.match(css, /body\[data-interface-mode="simple"\]/);
   assert.match(css, /data-active-popup-view="dtm"/);
   assert.equal(fs.existsSync(path.join(root, "update.html")), true);

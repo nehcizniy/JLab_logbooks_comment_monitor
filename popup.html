@@ -43,7 +43,7 @@
       <ul>
         <li>Use the top switch to start or pause automatic checks.</li>
         <li>Switch between Simple and Advanced at any time. Your settings and alarm history are preserved.</li>
-        <li>Use Check now for an immediate scan.</li>
+        <li>Use Check now for an immediate scan, New entry to open JLab's entry form, or Logbooks to open the main site.</li>
         <li>Open Recent alarms to review and reopen the latest alerts.</li>
         <li>Open Extension updates to check for a new release, update safely, or return to an earlier version.</li>
         <li>Use Monitoring health to review each source or copy privacy-safe diagnostics.</li>
@@ -58,9 +58,15 @@
       <button id="open-setup-guide" class="open-setup-guide" type="button">Open setup guide</button>
     </section>
 
-    <div class="top-actions">
-      <button id="check" class="primary">Check now</button>
-      <button id="clear">Clear alerts</button>
+    <div class="action-stack">
+      <div class="top-actions">
+        <button id="check" class="primary">Check now</button>
+        <button id="clear">Clear alerts</button>
+      </div>
+      <div class="logbook-actions" aria-label="JLab logbook shortcuts">
+        <button id="new-entry" type="button">New entry</button>
+        <button id="open-logbooks" type="button">Logbooks</button>
+      </div>
     </div>
 
     <section class="status-card">

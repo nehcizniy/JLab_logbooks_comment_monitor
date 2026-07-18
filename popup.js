@@ -23,6 +23,8 @@ const detailText = document.querySelector("#detail");
 const statusDot = document.querySelector("#status-dot");
 const checkButton = document.querySelector("#check");
 const clearButton = document.querySelector("#clear");
+const newEntryButton = document.querySelector("#new-entry");
+const openLogbooksButton = document.querySelector("#open-logbooks");
 const testNotificationButton = document.querySelector("#test-notification");
 const testCommentButton = document.querySelector("#test-comment");
 const commentTestStatus = document.querySelector("#comment-test-status");
@@ -150,6 +152,8 @@ let activePopupView = POPUP_VIEWS.includes(localStorage.getItem("jlab-popup-view
 
 const SETTINGS_BACKUP_FORMAT = "jlab-logbook-comment-monitor-backup";
 const SETTINGS_BACKUP_VERSION = 1;
+const NEW_LOGBOOK_ENTRY_URL = "https://logbooks.jlab.org/node/add/logentry";
+const LOGBOOKS_HOME_URL = "https://logbooks.jlab.org/";
 const TRANSIENT_STORAGE_KEYS = new Set([
   "checking", "lastError", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
   "lastEmailError", "lastEmailAttempt", "lastEmailSentAt", "shiftCrewState",
@@ -335,6 +339,14 @@ clearButton.addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "clear-notifications" });
   clearButton.textContent = "Cleared";
   setTimeout(() => { clearButton.textContent = "Clear alerts"; }, 900);
+});
+
+newEntryButton.addEventListener("click", () => {
+  chrome.tabs.create({ url: NEW_LOGBOOK_ENTRY_URL });
+});
+
+openLogbooksButton.addEventListener("click", () => {
+  chrome.tabs.create({ url: LOGBOOKS_HOME_URL });
 });
 
 testNotificationButton.addEventListener("click", async () => {
