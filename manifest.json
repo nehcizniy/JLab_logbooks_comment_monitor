@@ -1,13 +1,33 @@
 {
   "manifest_version": 3,
   "name": "JLab Logbook Comment Monitor",
-  "version": "2.12.3",
+  "version": "2.23.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtMFw5+H1PbNbNYV+0HLqJ7r2Dxvb0pujK6drqKfBRpUUNV80d9lNATlUIvbOTqZWarV0jQBS8ROY7cX33rZG50Wc3kjbSbHpIP+x6FJ7MYX61cNybcDamWsQWY9UWfmwe3+9Z6GTndtwKsAzRLkE9ModxleOdFe+IhLyvtur63TH5vwr8twipL7XurwSYP/zJNv1y2hp0fBerfIDaQ/IypDYM0olQL2VDw8L09DYc5Ca7Sz6fHLHVtXxKEueRvk8bBUZrIp2MHnFHn6/s+S6QGsAWgsOgwTu63A5Bwp5LjP+AWpT1wvYtawFOjbh0Z05I+QbEAevDvGD01CAU7Am6wIDAQAB",
   "icons": {
     "128": "icon.png"
   },
-  "description": "Checks user-selected JLab logbooks for comments, watched authors, and opened or closed beam-down events.",
-  "permissions": ["alarms", "notifications", "storage", "tabs"],
-  "host_permissions": ["https://logbooks.jlab.org/*", "https://ace.jlab.org/dtm/*"],
+  "description": "Checks JLab logbooks, shift crews, watched names, shift-summary edits, and beam-down events, with optional email alerts.",
+  "permissions": ["alarms", "clipboardWrite", "identity", "notifications", "storage", "tabs"],
+  "host_permissions": [
+    "https://logbooks.jlab.org/*",
+    "https://ace.jlab.org/dtm/*",
+    "https://misportal.jlab.org/*",
+    "https://www.jlab.org/Hall-B/pradshifts/*",
+    "https://www.jlab.org/Hall-D/*",
+    "https://api.github.com/repos/nehcizniy/JLab_logbooks_comment_monitor/releases/*",
+    "https://gmail.googleapis.com/*",
+    "https://www.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://login.microsoftonline.com/*",
+    "https://graph.microsoft.com/*"
+  ],
+  "oauth2": {
+    "client_id": "REPLACE_WITH_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/userinfo.email"
+    ]
+  },
   "background": {
     "service_worker": "background.js"
   },

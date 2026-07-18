@@ -6,7 +6,7 @@
   <title>JLab Comment Monitor</title>
   <link rel="stylesheet" href="popup.css">
 </head>
-<body>
+<body data-interface-mode="simple" data-active-popup-view="overview">
   <main>
     <header>
       <div>
@@ -22,20 +22,51 @@
       </label>
     </header>
 
+    <section class="interface-mode-control" aria-label="Interface mode">
+      <div class="interface-mode-copy">
+        <strong>Interface</strong>
+        <span id="interface-mode-description">Simple keeps the most-used controls on one page.</span>
+      </div>
+      <div class="interface-mode-buttons">
+        <button type="button" data-interface-mode-button="simple" aria-pressed="true">Simple</button>
+        <button type="button" data-interface-mode-button="advanced" aria-pressed="false">Advanced</button>
+      </div>
+    </section>
+
+    <section id="advanced-settings-banner" class="advanced-settings-banner" hidden>
+      <span id="advanced-settings-summary"></span>
+      <button id="switch-to-advanced" type="button">Switch to Advanced</button>
+    </section>
+
     <section id="help-panel" class="help-panel" aria-label="Quick help" hidden>
       <strong>Quick help</strong>
       <ul>
         <li>Use the top switch to start or pause automatic checks.</li>
-        <li>Use Check now for an immediate scan.</li>
+        <li>Switch between Simple and Advanced at any time. Your settings and alarm history are preserved.</li>
+        <li>Use Check now for an immediate scan, New entry to open JLab's entry form, or Logbooks to open the main site.</li>
+        <li>Open Recent alarms to review and reopen the latest alerts.</li>
+        <li>Open Extension updates to check for a new release, update safely, or return to an earlier version.</li>
+        <li>Use Monitoring health to review each source or copy privacy-safe diagnostics.</li>
+        <li>Add public JLab schedule URLs under Shift Crew to see the current Hall A–D workers.</li>
+        <li>Use Alerts to choose system/email delivery, quiet hours, or a temporary snooze.</li>
         <li>Configure each logbook by entry count, hours, or days.</li>
-        <li>Turn off DTM recurring reminders to receive only event changes.</li>
+        <li>Use each logbook's Shift summaries switch to control edit notifications.</li>
+        <li>Use the DTM tab to review event status, open the live DTM page, or turn recurring reminders on and off.</li>
+        <li>Email is optional. Native system notifications work without an email account.</li>
         <li>Chrome must remain running for scheduled checks.</li>
       </ul>
+      <button id="open-setup-guide" class="open-setup-guide" type="button">Open setup guide</button>
     </section>
 
-    <div class="top-actions">
-      <button id="check" class="primary">Check now</button>
-      <button id="clear">Clear alerts</button>
+    <div class="action-stack">
+      <div class="top-actions">
+        <button id="check" class="primary">Check now</button>
+        <button id="clear">Clear alerts</button>
+      </div>
+      <div class="logbook-actions" aria-label="JLab logbook shortcuts">
+        <button id="new-entry" type="button">New entry</button>
+        <button id="open-logbooks" type="button">Logbooks</button>
+      </div>
     </div>
 
     <section class="status-card">
@@ -46,7 +77,111 @@
       </div>
     </section>
 
-    <details class="shift-summary-card" open>
+    <nav class="popup-tabs" aria-label="Extension sections">
+      <button type="button" data-popup-tab="overview" aria-pressed="true">Monitoring</button>
+      <button type="button" data-popup-tab="dtm" aria-pressed="false">DTM</button>
+      <button type="button" data-popup-tab="shifts" aria-pressed="false">Shifts</button>
+      <button type="button" data-popup-tab="alerts" aria-pressed="false">Alerts</button>
+      <button type="button" data-popup-tab="settings" aria-pressed="false">Settings</button>
+    </nav>
+
+    <details class="recent-alarms-card" data-popup-view="overview">
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Recent alarms</strong>
+          <small>Five newest alerts, expandable to twenty</small>
+        </span>
+      </summary>
+      <div class="recent-alarms-body">
+        <div id="recent-alarms-list" class="recent-alarms-list"></div>
+        <button id="expand-alarms" class="expand-alarms" type="button" hidden>Show up to 20</button>
+      </div>
+    </details>
+
+    <details id="extension-update-details" class="extension-update-card" data-popup-view="overview">
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Extension updates</strong>
+          <small id="extension-update-summary">Installed version <span id="extension-update-current-version"></span></small>
+        </span>
+      </summary>
+      <div class="extension-update-body">
+        <label class="extension-update-toggle">
+          <span><strong>Track new versions</strong><small>Check GitHub once per day and notify once for each new release</small></span>
+          <input id="track-extension-updates" type="checkbox">
+        </label>
+        <p id="extension-update-status" class="extension-update-status" aria-live="polite">Checking GitHub releases…</p>
+        <div class="extension-update-actions">
+          <button id="check-extension-update" type="button">Check now</button>
+          <button id="open-update-guide" type="button">Update or go back</button>
+          <button id="download-extension-update" class="primary" type="button" hidden>Download update</button>
+          <button id="open-previous-versions" type="button">Previous versions</button>
+        </div>
+        <small>Updates use the same permanent extension ID. Reloading normally keeps settings; export a backup before changing versions.</small>
+      </div>
+    </details>
+
+    <details class="health-card" data-popup-view="overview" data-simple-hide>
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Monitoring health</strong>
+          <small>Last success, next check, scan depth, and errors</small>
+        </span>
+      </summary>
+      <div class="health-body">
+        <div id="health-list" class="health-list"></div>
+        <button id="copy-diagnostics" type="button">Copy diagnostics</button>
+        <span id="copy-diagnostics-status" class="health-copy-status" aria-live="polite"></span>
+      </div>
+    </details>
+
+    <details id="shift-crew-details" class="shift-crew-card" data-popup-view="shifts" data-simple-visible>
+      <summary class="fold-summary shift-crew-summary">
+        <span class="fold-summary-copy">
+          <strong>Shift Crew</strong>
+          <small>Hall A–D current workers · checked daily</small>
+        </span>
+        <aside class="shift-crew-hover-card">
+          <strong>Current shift crew</strong>
+          <small>JLab local time</small>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-a">Hall A</a><span id="shift-crew-hover-hall-a"></span></div>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-b">Hall B</a><span id="shift-crew-hover-hall-b"></span></div>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-c">Hall C</a><span id="shift-crew-hover-hall-c"></span></div>
+          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-d">Hall D</a><span id="shift-crew-hover-hall-d"></span></div>
+        </aside>
+      </summary>
+      <div class="shift-crew-body">
+        <p>Paste one public JLab shift-schedule URL for each hall you want to display. Leave a hall blank to hide its crew.</p>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-a">Hall A</a>
+          <input id="shift-crew-url-hall-a" type="url" aria-label="Hall A shift-schedule URL" placeholder="https://misportal.jlab.org/…">
+          <small id="shift-crew-current-hall-a"></small>
+          <label class="shift-alert-toggle"><input id="shift-crew-alert-hall-a" type="checkbox"> Alert when today's schedule changes</label>
+        </div>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-b">Hall B</a>
+          <input id="shift-crew-url-hall-b" type="url" aria-label="Hall B shift-schedule URL" placeholder="https://www.jlab.org/Hall-B/…">
+          <small id="shift-crew-current-hall-b"></small>
+          <label class="shift-alert-toggle"><input id="shift-crew-alert-hall-b" type="checkbox"> Alert when today's schedule changes</label>
+        </div>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-c">Hall C</a>
+          <input id="shift-crew-url-hall-c" type="url" aria-label="Hall C shift-schedule URL" placeholder="https://misportal.jlab.org/…">
+          <small id="shift-crew-current-hall-c"></small>
+          <label class="shift-alert-toggle"><input id="shift-crew-alert-hall-c" type="checkbox"> Alert when today's schedule changes</label>
+        </div>
+        <div class="shift-crew-input-row">
+          <a id="shift-crew-link-hall-d">Hall D</a>
+          <input id="shift-crew-url-hall-d" type="url" aria-label="Hall D shift-schedule URL" placeholder="https://www.jlab.org/Hall-D/…">
+          <small id="shift-crew-current-hall-d"></small>
+          <label class="shift-alert-toggle"><input id="shift-crew-alert-hall-d" type="checkbox"> Alert when today's schedule changes</label>
+        </div>
+        <button id="save-shift-crew" type="button">Enter</button>
+        <span id="shift-crew-status" class="shift-crew-status" aria-live="polite"></span>
+      </div>
+    </details>
+
+    <details class="shift-summary-card" data-popup-view="shifts" data-simple-visible open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Shift summaries</strong>
@@ -56,7 +191,7 @@
       <div id="shift-summary-list" class="shift-summary-list"></div>
     </details>
 
-    <section class="interval-control">
+    <section class="interval-control" data-popup-view="overview">
       <label for="interval">Automatic check interval</label>
       <select id="interval">
         <option value="5">Every 5 minutes</option>
@@ -67,22 +202,139 @@
       </select>
     </section>
 
-    <section class="dtm-reminder-control">
-      <div>
-        <p>DTM recurring reminders</p>
-        <span>Off: notify only when the event changes</span>
+    <section class="dtm-card" data-popup-view="dtm" aria-labelledby="dtm-card-title">
+      <div class="dtm-card-heading">
+        <div>
+          <strong id="dtm-card-title">DTM beam-down events</strong>
+          <span>Checked with each enabled logbook scan</span>
+        </div>
+        <button id="open-dtm" type="button">Open DTM</button>
       </div>
-      <label class="small-switch" aria-label="Repeat DTM notifications while an event remains open">
-        <input id="repeat-dtm-alerts" type="checkbox">
-        <span class="small-slider"></span>
-      </label>
+      <div class="dtm-status-row" aria-live="polite">
+        <span id="dtm-status-dot" class="dot"></span>
+        <div>
+          <strong id="dtm-status">Waiting for the first DTM check</strong>
+          <span id="dtm-status-detail">Event openings, changes, and closures will appear here.</span>
+        </div>
+      </div>
+      <div class="dtm-behavior-note">
+        <strong>Event-change notifications</strong>
+        <span>Open, changed, and closed events follow your selected Alert level and delivery channels.</span>
+      </div>
+      <section class="dtm-reminder-control">
+        <div class="dtm-reminder-copy">
+          <p>Recurring reminders</p>
+          <span>Off: notify only when the event changes</span>
+        </div>
+        <label class="small-switch" aria-label="Repeat DTM notifications while an event remains open">
+          <input id="repeat-dtm-alerts" type="checkbox">
+          <span class="small-slider"></span>
+        </label>
+      </section>
     </section>
 
-    <details class="book-controls" open>
+    <section class="alert-policy-card" data-popup-view="alerts" data-simple-visible>
+      <div class="alert-policy-heading">
+        <strong>Alert level</strong>
+        <span>Choose how much activity should actively notify people.</span>
+      </div>
+      <div class="alert-preset-row">
+        <select id="alert-preset" aria-label="Alert level">
+          <option value="essential">Essential</option>
+          <option value="standard">Standard</option>
+          <option value="everything">Everything</option>
+          <option value="custom" disabled>Custom</option>
+        </select>
+        <span id="alert-preset-description"></span>
+      </div>
+      <div class="snooze-row">
+        <select id="snooze-duration" aria-label="Notification snooze duration">
+          <option value="1">1 hour</option>
+          <option value="4">4 hours</option>
+          <option value="8">8 hours</option>
+        </select>
+        <button id="snooze-notifications" type="button">Pause alerts</button>
+        <button id="resume-notifications" type="button">Resume</button>
+      </div>
+      <span id="alert-policy-status" class="alert-policy-status" aria-live="polite"></span>
+      <div class="recommended-reset-row">
+        <button id="reset-recommended" type="button">Use recommended defaults</button>
+        <span id="reset-recommended-status">5-minute checks, Standard alerts, no quiet hours. Personal lists and email setup are kept.</span>
+      </div>
+      <details class="alert-advanced">
+        <summary class="fold-summary">
+          <span class="fold-summary-copy"><strong>Advanced</strong><small>Individual channels and quiet hours</small></span>
+        </summary>
+        <div class="alert-advanced-body">
+          <div class="alert-policy-columns" aria-hidden="true"><span>Alert</span><span>System</span><span>Email</span></div>
+          <div id="alert-policy-list" class="alert-policy-list"></div>
+          <div class="quiet-hours-row">
+            <label><input id="quiet-hours-enabled" type="checkbox"> Quiet hours</label>
+            <input id="quiet-hours-start" type="time" aria-label="Quiet hours start">
+            <span>to</span>
+            <input id="quiet-hours-end" type="time" aria-label="Quiet hours end">
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <details class="email-controls" data-popup-view="alerts">
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Email notifications (optional)</strong>
+          <small>Skip this section unless you want email copies of alarms</small>
+        </span>
+      </summary>
+      <div class="email-controls-body">
+        <p class="email-optional-note">No email setup is required for native system notifications. Configure this only if you also want alerts delivered by email.</p>
+        <div class="email-enabled-row">
+          <div>
+            <strong>Send alert emails</strong>
+            <span>System notifications continue when this is off</span>
+          </div>
+          <label class="small-switch" aria-label="Turn email notifications on or off">
+            <input id="email-enabled" type="checkbox">
+            <span class="small-slider"></span>
+          </label>
+        </div>
+
+        <label for="email-provider">Sending account</label>
+        <select id="email-provider">
+          <option value="gmail">Gmail</option>
+          <option value="microsoft">Outlook / Exchange Online</option>
+        </select>
+
+        <label for="email-recipients">Receiving addresses</label>
+        <textarea id="email-recipients" rows="3" placeholder="One address per line, or separate with commas"></textarea>
+
+        <section id="gmail-email-settings" class="email-provider-settings">
+          <p>Gmail uses the fixed extension ID <code id="gmail-extension-id"></code>. Add its free Google OAuth client ID to <code>manifest.json</code> before connecting.</p>
+        </section>
+
+        <section id="microsoft-email-settings" class="email-provider-settings" hidden>
+          <label for="microsoft-client-id">Microsoft Application (client) ID</label>
+          <input id="microsoft-client-id" type="text" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000">
+          <label for="microsoft-tenant">Tenant</label>
+          <input id="microsoft-tenant" type="text" autocomplete="off" placeholder="common">
+          <p>Register this SPA redirect URI: <code id="microsoft-redirect-uri"></code></p>
+        </section>
+
+        <p id="email-status" class="email-status" aria-live="polite">Email is not connected.</p>
+        <div class="email-actions">
+          <button id="save-email" type="button">Save</button>
+          <button id="connect-email" type="button">Connect sender</button>
+          <button id="disconnect-email" type="button">Disconnect</button>
+          <button id="test-email" type="button">Send test email</button>
+        </div>
+        <p class="email-privacy">OAuth only. The extension never asks for or stores your email password.</p>
+      </div>
+    </details>
+
+    <details class="book-controls" data-popup-view="overview" open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Monitored logbooks</strong>
-          <small>Add logbooks and configure each automatic check</small>
+          <small>Add logbooks and turn each automatic monitor on or off</small>
         </span>
       </summary>
       <div class="book-controls-body">
@@ -96,34 +348,117 @@
       </div>
     </details>
 
-    <details class="author-watch" open>
+    <details class="author-watch" data-popup-view="overview" open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Notify for new entries by</strong>
-          <small>Watch one or more author names</small>
+          <small>Match Authors or Entry Makers</small>
         </span>
       </summary>
       <div class="author-watch-body">
-        <label for="authors">Author names</label>
-        <textarea id="authors" rows="3" placeholder="Enter usernames or author names, one per line"></textarea>
+        <label for="authors">Names to watch</label>
+        <textarea id="authors" rows="3" placeholder="Enter Author or Entry Maker names, one per line"></textarea>
         <div class="author-row">
           <span id="author-status">Exact match, ignoring capitalization</span>
           <div class="author-buttons">
-            <button id="test-author">Test author match</button>
-            <button id="save-authors">Save authors</button>
+            <button id="test-author">Test name match</button>
+            <button id="save-authors">Save names</button>
           </div>
         </div>
       </div>
     </details>
 
-    <p class="footnote">Version <span id="extension-version"></span> · Checks run without opening background tabs. A tab opens only when you choose to open an entry or logbook.</p>
+    <section class="setup-test-card" data-popup-view="settings" data-simple-visible>
+      <strong>Test my setup</strong>
+      <span>Checks system notifications, JLab access, DTM, configured schedules, and email only when you configured it.</span>
+      <button id="test-setup" type="button">Run setup test</button>
+      <div id="setup-test-results" class="setup-test-results" aria-live="polite"></div>
+    </section>
 
-    <div class="actions" aria-label="Notification tests">
-      <button id="test-notification">Test system notification</button>
-      <button id="test-comment">Test comment match</button>
-    </div>
-    <p id="comment-test-status" class="footnote" aria-live="polite"></p>
+    <details class="settings-backup" data-popup-view="settings" open>
+      <summary class="fold-summary">
+        <span class="fold-summary-copy">
+          <strong>Settings backup</strong>
+          <small>Export or restore logbooks, watch settings, and monitoring baselines</small>
+        </span>
+      </summary>
+      <div class="settings-backup-body">
+        <p>Export before changing the extension ID or moving to another computer.</p>
+        <p class="extension-id-line">Extension ID: <code id="extension-id"></code></p>
+        <div class="settings-backup-actions">
+          <button id="export-settings" type="button">Export settings</button>
+          <button id="import-settings" type="button">Import settings</button>
+          <input id="import-settings-file" type="file" accept="application/json,.json" hidden>
+        </div>
+        <span id="settings-backup-status" class="settings-backup-status" aria-live="polite"></span>
+      </div>
+    </details>
+
+    <p class="footnote" data-popup-view="settings">Version <span id="extension-version"></span> · Checks run without opening background tabs. A tab opens only when you choose to open an entry or logbook.</p>
+
+    <details class="individual-tests" data-popup-view="settings">
+      <summary class="fold-summary"><span class="fold-summary-copy"><strong>Individual tests</strong><small>Run a specific notification or comment preview</small></span></summary>
+      <div class="actions" aria-label="Notification tests">
+        <button id="test-notification">Test system notification</button>
+        <button id="test-comment">Test comment match</button>
+      </div>
+      <p id="comment-test-status" class="footnote" aria-live="polite"></p>
+    </details>
   </main>
+
+  <div id="setup-wizard" class="setup-wizard" role="dialog" aria-modal="true" aria-labelledby="setup-wizard-title" hidden>
+    <section class="setup-wizard-card">
+      <div class="setup-wizard-heading">
+        <div>
+          <p class="eyebrow">QUICK SETUP</p>
+          <h2 id="setup-wizard-title">Welcome</h2>
+        </div>
+        <span id="setup-wizard-progress">1 of 3</span>
+      </div>
+
+      <section class="setup-wizard-step" data-setup-step="0">
+        <strong>Get important JLab updates without keeping logbook tabs open.</strong>
+        <p>The extension uses your browser’s existing JLab session. It does not ask for, read, or store your JLab password.</p>
+        <ul>
+          <li>Comments and watched-name entries</li>
+          <li>Shift-summary edits and DTM changes</li>
+          <li>Native system notifications</li>
+        </ul>
+      </section>
+
+      <section class="setup-wizard-step" data-setup-step="1" hidden>
+        <strong>Choose logbooks</strong>
+        <p>Select the logbooks to check automatically and how often to check them.</p>
+        <div id="setup-wizard-logbooks" class="setup-wizard-logbooks"></div>
+        <label class="setup-wizard-interval" for="setup-wizard-interval">Check interval
+          <select id="setup-wizard-interval">
+            <option value="5">Every 5 minutes</option>
+            <option value="10">Every 10 minutes</option>
+            <option value="15">Every 15 minutes</option>
+            <option value="30">Every 30 minutes</option>
+            <option value="60">Every 60 minutes</option>
+          </select>
+        </label>
+        <span id="setup-wizard-error" class="setup-wizard-error" aria-live="polite"></span>
+      </section>
+
+      <section class="setup-wizard-step" data-setup-step="2" hidden>
+        <strong>Ready with recommended alerts</strong>
+        <p>Standard alerts include comments, watched people, shift-summary edits, and DTM event changes. Email is optional and can be configured later in Advanced mode.</p>
+        <label class="setup-wizard-test"><input id="setup-wizard-test-notification" type="checkbox" checked> Show a test system notification when setup finishes</label>
+        <p class="setup-wizard-note">Chrome must remain running for automatic checks. JLab logbook tabs do not need to stay open.</p>
+      </section>
+
+      <div class="setup-wizard-actions">
+        <button id="setup-wizard-skip" type="button">Not now</button>
+        <button id="setup-wizard-back" type="button" hidden>Back</button>
+        <button id="setup-wizard-next" class="primary" type="button">Next</button>
+      </div>
+    </section>
+  </div>
+  <script src="monitor-policy.js"></script>
+  <script src="health.js"></script>
+  <script src="extension-updates.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
