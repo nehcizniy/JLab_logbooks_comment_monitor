@@ -6,7 +6,7 @@
   <title>JLab Comment Monitor</title>
   <link rel="stylesheet" href="popup.css">
 </head>
-<body data-interface-mode="simple">
+<body data-interface-mode="simple" data-active-popup-view="overview">
   <main>
     <header>
       <div>
@@ -51,7 +51,7 @@
         <li>Use Alerts to choose system/email delivery, quiet hours, or a temporary snooze.</li>
         <li>Configure each logbook by entry count, hours, or days.</li>
         <li>Use each logbook's Shift summaries switch to control edit notifications.</li>
-        <li>DTM reminders notify on event changes by default; recurring reminders are optional under Alerts → Advanced.</li>
+        <li>Use the DTM tab to review event status, open the live DTM page, or turn recurring reminders on and off.</li>
         <li>Email is optional. Native system notifications work without an email account.</li>
         <li>Chrome must remain running for scheduled checks.</li>
       </ul>
@@ -73,6 +73,7 @@
 
     <nav class="popup-tabs" aria-label="Extension sections">
       <button type="button" data-popup-tab="overview" aria-pressed="true">Monitoring</button>
+      <button type="button" data-popup-tab="dtm" aria-pressed="false">DTM</button>
       <button type="button" data-popup-tab="shifts" aria-pressed="false">Shifts</button>
       <button type="button" data-popup-tab="alerts" aria-pressed="false">Alerts</button>
       <button type="button" data-popup-tab="settings" aria-pressed="false">Settings</button>
@@ -195,6 +196,37 @@
       </select>
     </section>
 
+    <section class="dtm-card" data-popup-view="dtm" aria-labelledby="dtm-card-title">
+      <div class="dtm-card-heading">
+        <div>
+          <strong id="dtm-card-title">DTM beam-down events</strong>
+          <span>Checked with each enabled logbook scan</span>
+        </div>
+        <button id="open-dtm" type="button">Open DTM</button>
+      </div>
+      <div class="dtm-status-row" aria-live="polite">
+        <span id="dtm-status-dot" class="dot"></span>
+        <div>
+          <strong id="dtm-status">Waiting for the first DTM check</strong>
+          <span id="dtm-status-detail">Event openings, changes, and closures will appear here.</span>
+        </div>
+      </div>
+      <div class="dtm-behavior-note">
+        <strong>Event-change notifications</strong>
+        <span>Open, changed, and closed events follow your selected Alert level and delivery channels.</span>
+      </div>
+      <section class="dtm-reminder-control">
+        <div class="dtm-reminder-copy">
+          <p>Recurring reminders</p>
+          <span>Off: notify only when the event changes</span>
+        </div>
+        <label class="small-switch" aria-label="Repeat DTM notifications while an event remains open">
+          <input id="repeat-dtm-alerts" type="checkbox">
+          <span class="small-slider"></span>
+        </label>
+      </section>
+    </section>
+
     <section class="alert-policy-card" data-popup-view="alerts" data-simple-visible>
       <div class="alert-policy-heading">
         <strong>Alert level</strong>
@@ -225,7 +257,7 @@
       </div>
       <details class="alert-advanced">
         <summary class="fold-summary">
-          <span class="fold-summary-copy"><strong>Advanced</strong><small>Individual channels, quiet hours, and recurring reminders</small></span>
+          <span class="fold-summary-copy"><strong>Advanced</strong><small>Individual channels and quiet hours</small></span>
         </summary>
         <div class="alert-advanced-body">
           <div class="alert-policy-columns" aria-hidden="true"><span>Alert</span><span>System</span><span>Email</span></div>
@@ -236,19 +268,6 @@
             <span>to</span>
             <input id="quiet-hours-end" type="time" aria-label="Quiet hours end">
           </div>
-          <section class="dtm-reminder-control">
-            <div class="dtm-reminder-copy">
-              <p>DTM recurring reminders</p>
-              <span>Off: notify only when the event changes</span>
-            </div>
-            <div class="dtm-reminder-actions">
-              <button id="open-dtm" type="button">Open DTM</button>
-              <label class="small-switch" aria-label="Repeat DTM notifications while an event remains open">
-                <input id="repeat-dtm-alerts" type="checkbox">
-                <span class="small-slider"></span>
-              </label>
-            </div>
-          </section>
         </div>
       </details>
     </section>

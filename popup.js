@@ -10,6 +10,9 @@ const openSetupGuideButton = document.querySelector("#open-setup-guide");
 const intervalInput = document.querySelector("#interval");
 const repeatDtmAlertsInput = document.querySelector("#repeat-dtm-alerts");
 const openDtmButton = document.querySelector("#open-dtm");
+const dtmStatusDot = document.querySelector("#dtm-status-dot");
+const dtmStatus = document.querySelector("#dtm-status");
+const dtmStatusDetail = document.querySelector("#dtm-status-detail");
 const bookUrlInput = document.querySelector("#book-url");
 const addBookButton = document.querySelector("#add-book");
 const bookAddStatus = document.querySelector("#book-add-status");
@@ -139,7 +142,9 @@ let shiftCrewConfigLoaded = false;
 let currentInterfaceMode = "simple";
 let currentSetupWizardStep = 0;
 let currentExtensionUpdateDownloadUrl = "";
-let activePopupView = ["overview", "shifts", "alerts", "settings"].includes(localStorage.getItem("jlab-popup-view"))
+const POPUP_VIEWS = ["overview", "dtm", "shifts", "alerts", "settings"];
+const SIMPLE_POPUP_VIEWS = ["overview", "dtm"];
+let activePopupView = POPUP_VIEWS.includes(localStorage.getItem("jlab-popup-view"))
   ? localStorage.getItem("jlab-popup-view")
   : "overview";
 
@@ -398,7 +403,8 @@ render();
 chrome.runtime.sendMessage({ type: "refresh-shift-crew-if-due" }).catch(() => {});
 
 function setActivePopupView(view) {
-  activePopupView = ["overview", "shifts", "alerts", "settings"].includes(view) ? view : "overview";
+  activePopupView = POPUP_VIEWS.includes(view) ? view : "overview";
+  document.body.dataset.activePopupView = activePopupView;
   localStorage.setItem("jlab-popup-view", activePopupView);
   for (const button of popupTabButtons) {
     button.setAttribute("aria-pressed", String(button.dataset.popupTab === activePopupView));
@@ -513,6 +519,7 @@ async function setInterfaceMode(value) {
   if (interfaceMode === currentInterfaceMode) return;
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
+  if (interfaceMode === "simple" && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   await chrome.storage.local.set({ interfaceMode });
   await render();
 }
@@ -521,6 +528,7 @@ function renderInterfaceMode(state, monitoredBooks) {
   const interfaceMode = normalizeInterfaceMode(state.interfaceMode);
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
+  if (interfaceMode === "simple" && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   for (const button of interfaceModeButtons) {
     button.setAttribute("aria-pressed", String(button.dataset.interfaceModeButton === interfaceMode));
   }
@@ -541,7 +549,6 @@ function getActiveAdvancedFeatures(state, monitoredBooks) {
   const alertPreset = detectAlertPreset(preferences);
   if (alertPreset === "custom") features.push("custom alert channels");
   if (normalizeQuietHours(state.quietHours).enabled) features.push("quiet hours");
-  if (state.repeatDtmAlerts === true && alertPreset !== "everything") features.push("recurring DTM reminders");
   if (state.emailConfig?.enabled === true) features.push("email alerts");
   if ((state.shiftCrewAlertEnabledHalls || []).length) features.push("Shift Crew change alerts");
   if (monitoredBooks.some((book) => book.rangeType !== "entries" || Number(book.rangeValue) !== 100)) {
@@ -629,6 +636,36 @@ function renderAlertPolicyControls(state) {
     alertPolicyStatus.textContent = `Quiet hours: ${quietHours.start}–${quietHours.end} JLab time.`;
   } else {
     alertPolicyStatus.textContent = "Notification delivery is active.";
+  }
+}
+
+function renderDtmControls(state, enabled, activeBooks) {
+  const health = normalizeHealthState(state.healthState).dtm;
+  dtmStatusDot.className = "dot";
+  if (!enabled) {
+    dtmStatus.textContent = "DTM monitoring is paused";
+    dtmStatusDetail.textContent = "Turn on the main monitor switch to resume DTM checks.";
+    dtmStatusDot.classList.add("off");
+  } else if (!activeBooks.length) {
+    dtmStatus.textContent = "DTM is waiting for a logbook";
+    dtmStatusDetail.textContent = "Enable at least one logbook to include DTM in automatic checks.";
+    dtmStatusDot.classList.add("off");
+  } else if (state.checking || health.status === "checking") {
+    dtmStatus.textContent = "Checking DTM events…";
+    dtmStatusDetail.textContent = "Reading the live JLab DTM open-events page.";
+    dtmStatusDot.classList.add("working");
+  } else if (health.status === "error") {
+    dtmStatus.textContent = "DTM needs attention";
+    dtmStatusDetail.textContent = actionableErrorMessage(health.error || "DTM check failed", "monitor");
+    dtmStatusDot.classList.add("error");
+  } else if (health.lastSuccess) {
+    dtmStatus.textContent = health.detail || "DTM check succeeded";
+    dtmStatusDetail.textContent = `Last successful DTM check ${formatHealthTime(health.lastSuccess)}.`;
+    dtmStatusDot.classList.add("on");
+  } else {
+    dtmStatus.textContent = "Waiting for the first DTM check";
+    dtmStatusDetail.textContent = "Select Check now to establish the current event status.";
+    dtmStatusDot.classList.add("working");
   }
 }
 
@@ -860,6 +897,7 @@ async function render() {
   renderExtensionUpdate(state.extensionUpdateState, state.trackExtensionUpdates !== false);
   renderShiftCrewControls(state);
   renderAlertPolicyControls(state);
+  renderDtmControls(state, enabled, activeBooks);
   await renderHealthDashboard(state, intervalMinutes);
   renderEmailControls(state);
   if (!authorsLoaded) {

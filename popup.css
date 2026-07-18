@@ -72,18 +72,22 @@ input:checked + .slider::before { transform: translateX(20px); }
   box-shadow: 0 8px 25px #28415f10;
 }
 
-.popup-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; padding: 4px; border: 1px solid #d9e1ec; border-radius: 11px; background: #e9eff7; }
+.popup-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-top: 10px; padding: 4px; border: 1px solid #d9e1ec; border-radius: 11px; background: #e9eff7; }
 .popup-tabs button { min-height: 30px; padding: 0 4px; border: 0; border-radius: 7px; background: transparent; color: #607087; font-size: 9px; }
 .popup-tabs button[aria-pressed="true"] { background: #fff; color: #274d78; box-shadow: 0 2px 7px #17203318; }
 .popup-view-hidden { display: none !important; }
 
-body[data-interface-mode="simple"] .popup-tabs { display: none; }
+body[data-interface-mode="simple"] .popup-tabs { grid-template-columns: repeat(2, 1fr); }
+body[data-interface-mode="simple"] [data-popup-tab="shifts"],
+body[data-interface-mode="simple"] [data-popup-tab="alerts"],
+body[data-interface-mode="simple"] [data-popup-tab="settings"] { display: none; }
 body[data-interface-mode="simple"] [data-popup-view] { display: none !important; }
-body[data-interface-mode="simple"] [data-popup-view="overview"]:not([data-simple-hide]),
-body[data-interface-mode="simple"] [data-simple-visible] { display: block !important; }
-body[data-interface-mode="simple"] .interval-control { display: flex !important; }
-body[data-interface-mode="simple"] .alert-policy-card,
-body[data-interface-mode="simple"] .setup-test-card { display: grid !important; }
+body[data-interface-mode="simple"][data-active-popup-view="overview"] [data-popup-view="overview"]:not([data-simple-hide]),
+body[data-interface-mode="simple"][data-active-popup-view="overview"] [data-simple-visible] { display: block !important; }
+body[data-interface-mode="simple"][data-active-popup-view="dtm"] [data-popup-view="dtm"] { display: grid !important; }
+body[data-interface-mode="simple"][data-active-popup-view="overview"] .interval-control { display: flex !important; }
+body[data-interface-mode="simple"][data-active-popup-view="overview"] .alert-policy-card,
+body[data-interface-mode="simple"][data-active-popup-view="overview"] .setup-test-card { display: grid !important; }
 body[data-interface-mode="simple"] .alert-advanced,
 body[data-interface-mode="simple"] .health-card,
 body[data-interface-mode="simple"] .book-range-control,
@@ -185,7 +189,21 @@ details[open] > .fold-summary::after { transform: rotate(90deg); }
 .interval-control label { color: #33445e; font-size: 11px; font-weight: 750; }
 .interval-control select { min-height: 32px; padding: 0 28px 0 9px; border: 1px solid #cbd5e2; border-radius: 8px; background: #fff; color: #24324a; font: inherit; font-size: 11px; cursor: pointer; }
 .interval-control select:focus { outline: 2px solid #274d7830; border-color: #577ba4; }
-.dtm-reminder-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 9px; padding: 10px 12px; border: 1px solid #d9e1ec; border-radius: 10px; background: #fff; }
+.dtm-card { display: grid; gap: 10px; margin-top: 10px; padding: 12px; border: 1px solid #b9cde3; border-radius: 11px; background: #f8fbff; }
+.dtm-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dtm-card-heading > div { display: grid; gap: 2px; }
+.dtm-card-heading strong { color: #274d78; font-size: 12px; }
+.dtm-card-heading span { color: #6b798e; font-size: 9px; line-height: 1.35; }
+.dtm-card-heading button { min-height: 30px; padding: 0 9px; font-size: 9px; flex: 0 0 auto; }
+.dtm-status-row { display: flex; align-items: flex-start; gap: 9px; padding: 10px; border-radius: 9px; background: #eaf1f8; }
+.dtm-status-row .dot { margin-top: 3px; }
+.dtm-status-row > div { display: grid; min-width: 0; gap: 3px; }
+.dtm-status-row strong { color: #33445e; font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
+.dtm-status-row span { color: #607087; font-size: 8px; line-height: 1.4; }
+.dtm-behavior-note { display: grid; gap: 2px; padding: 8px 9px; border: 1px solid #d8e3ef; border-radius: 8px; background: #fff; }
+.dtm-behavior-note strong { color: #365d87; font-size: 9px; }
+.dtm-behavior-note span { color: #6b798e; font-size: 8px; line-height: 1.4; }
+.dtm-reminder-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid #d8e3ef; border-radius: 9px; background: #fff; }
 .alert-policy-card { display: grid; gap: 8px; margin-top: 10px; padding: 11px 12px; border: 1px solid #d9e1ec; border-radius: 10px; background: #fff; }
 .alert-policy-heading { display: grid; gap: 2px; }
 .alert-policy-heading strong { color: #33445e; font-size: 11px; }
@@ -213,8 +231,6 @@ details[open] > .fold-summary::after { transform: rotate(90deg); }
 .recommended-reset-row span { color: #6b798e; font-size: 8px; line-height: 1.35; }
 .dtm-reminder-control p { margin: 0 0 2px; color: #33445e; font-size: 11px; font-weight: 750; }
 .dtm-reminder-copy > span { display: block; color: #738095; font-size: 9px; line-height: 1.35; }
-.dtm-reminder-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.dtm-reminder-actions button { min-height: 28px; padding: 0 8px; font-size: 9px; }
 .email-controls { margin-top: 9px; padding: 10px 12px; border: 1px solid #d9e1ec; border-radius: 10px; background: #fff; }
 .email-controls-body { display: grid; gap: 7px; margin-top: 10px; }
 .email-optional-note { margin: 0; padding: 8px 9px; border-radius: 8px; background: #edf4fc; color: #536176; font-size: 8px; line-height: 1.45; }

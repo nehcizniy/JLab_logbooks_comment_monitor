@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Moved DTM event status, the live DTM link, and recurring-reminder control into a dedicated DTM tab.
+- Made the DTM tab available in both Simple and Advanced interface modes.
+
 ## 2.23.0
 
 - Added an optional daily GitHub Release check and a native notification when a newer stable version is available.

@@ -144,13 +144,17 @@ test("manifest and popup retain required extension structure", () => {
     "test-setup", "interface-mode-description", "advanced-settings-banner", "switch-to-advanced",
     "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide",
     "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
-    "open-previous-versions"
+    "open-previous-versions", "dtm-status", "dtm-status-detail", "dtm-status-dot",
+    "open-dtm", "repeat-dtm-alerts"
   ]) {
     assert.equal(ids.includes(id), true, `missing #${id}`);
   }
   assert.match(html, /data-interface-mode="simple"/);
   assert.match(html, /data-interface-mode-button="advanced"/);
+  assert.match(html, /data-popup-tab="dtm"/);
+  assert.match(html, /data-popup-view="dtm"/);
   assert.match(css, /body\[data-interface-mode="simple"\]/);
+  assert.match(css, /data-active-popup-view="dtm"/);
   assert.equal(fs.existsSync(path.join(root, "update.html")), true);
   assert.equal(fs.existsSync(path.join(root, "extension-updates.js")), true);
 });
