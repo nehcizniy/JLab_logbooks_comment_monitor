@@ -28,7 +28,7 @@ header {
 .interface-mode-copy { display: grid; min-width: 0; gap: 1px; }
 .interface-mode-copy strong { color: #274d78; font-size: 10px; }
 .interface-mode-copy span { color: #607087; font-size: 8px; line-height: 1.3; }
-.interface-mode-buttons { display: grid; grid-template-columns: 1fr 1fr; flex: 0 0 auto; gap: 3px; padding: 3px; border-radius: 8px; background: #dce7f3; }
+.interface-mode-buttons { display: grid; grid-template-columns: repeat(2, 1fr); flex: 0 0 auto; gap: 3px; padding: 3px; border-radius: 8px; background: #dce7f3; }
 .interface-mode-buttons button { min-height: 27px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: #607087; font-size: 8px; }
 .interface-mode-buttons button[aria-pressed="true"] { background: #fff; color: #274d78; box-shadow: 0 1px 5px #1720331c; }
 .advanced-settings-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 9px; border: 1px solid #e4c77d; border-radius: 9px; background: #fff8e5; }
@@ -77,29 +77,29 @@ input:checked + .slider::before { transform: translateX(20px); }
 .popup-tabs button[aria-pressed="true"] { background: #fff; color: #274d78; box-shadow: 0 2px 7px #17203318; }
 .popup-view-hidden { display: none !important; }
 
-body[data-interface-mode="simple"] .popup-tabs { grid-template-columns: repeat(2, 1fr); }
-body[data-interface-mode="simple"] [data-popup-tab="shifts"],
-body[data-interface-mode="simple"] [data-popup-tab="alerts"],
-body[data-interface-mode="simple"] [data-popup-tab="settings"] { display: none; }
-body[data-interface-mode="simple"] [data-popup-view] { display: none !important; }
-body[data-interface-mode="simple"][data-active-popup-view="overview"] [data-popup-view="overview"]:not([data-simple-hide]),
-body[data-interface-mode="simple"][data-active-popup-view="overview"] [data-simple-visible] { display: block !important; }
-body[data-interface-mode="simple"][data-active-popup-view="dtm"] [data-popup-view="dtm"] { display: grid !important; }
-body[data-interface-mode="simple"][data-active-popup-view="overview"] .interval-control { display: flex !important; }
-body[data-interface-mode="simple"][data-active-popup-view="overview"] .alert-policy-card,
-body[data-interface-mode="simple"][data-active-popup-view="overview"] .setup-test-card { display: grid !important; }
-body[data-interface-mode="simple"] .alert-advanced,
-body[data-interface-mode="simple"] .health-card,
-body[data-interface-mode="simple"] .book-range-control,
-body[data-interface-mode="simple"] .book-diagnostics,
-body[data-interface-mode="simple"] .book-remove-button,
-body[data-interface-mode="simple"] .shift-summary-edit-toggle,
-body[data-interface-mode="simple"] #expand-alarms { display: none !important; }
-body[data-interface-mode="simple"] .shift-crew-card > .shift-crew-summary { display: block; cursor: default; }
-body[data-interface-mode="simple"] .shift-crew-card > .shift-crew-summary::after { display: none; }
-body[data-interface-mode="simple"] .shift-crew-body { display: grid !important; }
-body[data-interface-mode="simple"] .shift-alert-toggle { display: none !important; }
-body[data-interface-mode="simple"] .shift-crew-hover-card { position: static; display: grid; width: auto; margin-top: 8px; padding: 8px 9px; border-color: #dce5ef; box-shadow: none; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .popup-tabs { grid-template-columns: repeat(2, 1fr); }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) [data-popup-tab="shifts"],
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) [data-popup-tab="alerts"],
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) [data-popup-tab="settings"] { display: none; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) [data-popup-view] { display: none !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"])[data-active-popup-view="overview"] [data-popup-view="overview"]:not([data-simple-hide]),
+body:is([data-interface-mode="simple"], [data-interface-mode="large"])[data-active-popup-view="overview"] [data-simple-visible] { display: block !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"])[data-active-popup-view="dtm"] [data-popup-view="dtm"] { display: grid !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"])[data-active-popup-view="overview"] .interval-control { display: flex !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"])[data-active-popup-view="overview"] .alert-policy-card,
+body:is([data-interface-mode="simple"], [data-interface-mode="large"])[data-active-popup-view="overview"] .setup-test-card { display: grid !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .alert-advanced,
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .health-card,
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .book-range-control,
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .book-diagnostics,
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .book-remove-button,
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-summary-edit-toggle,
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) #expand-alarms { display: none !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-card > .shift-crew-summary { display: block; cursor: default; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-card > .shift-crew-summary::after { display: none; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-body { display: grid !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-alert-toggle { display: none !important; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-hover-card { position: static; display: grid; width: auto; margin-top: 8px; padding: 8px 9px; border-color: #dce5ef; box-shadow: none; }
 
 .action-stack { display: grid; gap: 7px; margin-bottom: 12px; }
 .top-actions, .logbook-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
@@ -204,6 +204,10 @@ details[open] > .fold-summary::after { transform: rotate(90deg); }
 .dtm-status-row > div { display: grid; min-width: 0; gap: 3px; }
 .dtm-status-row strong { color: #33445e; font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
 .dtm-status-row span { color: #607087; font-size: 8px; line-height: 1.4; }
+.dtm-interval-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid #d8e3ef; border-radius: 9px; background: #fff; }
+.dtm-interval-control label { color: #33445e; font-size: 10px; font-weight: 750; }
+.dtm-interval-control select { min-height: 32px; padding: 0 28px 0 9px; border: 1px solid #cbd5e2; border-radius: 8px; background: #fff; color: #24324a; font: inherit; font-size: 9px; cursor: pointer; }
+.dtm-interval-control select:focus { outline: 2px solid #274d7830; border-color: #577ba4; }
 .dtm-behavior-note { display: grid; gap: 2px; padding: 8px 9px; border: 1px solid #d8e3ef; border-radius: 8px; background: #fff; }
 .dtm-behavior-note strong { color: #365d87; font-size: 9px; }
 .dtm-behavior-note span { color: #6b798e; font-size: 8px; line-height: 1.4; }
@@ -350,3 +354,57 @@ button.primary:hover { background: #1e3e63; }
 .setup-wizard-note { color: #6b798e; font-size: 9px; }
 .setup-wizard-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 14px; }
 .setup-wizard-actions button { min-height: 34px; padding: 0 7px; font-size: 9px; }
+
+/* Both large interfaces increase readability and touch targets. */
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) { width: 480px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) main { padding: 24px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) header { margin-bottom: 16px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) h1 { font-size: 30px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) h2 { font-size: 23px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) h3 { font-size: 17px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) :is(p, li, label, span) { font-size: 15px !important; line-height: 1.5; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) strong { font-size: 17px !important; line-height: 1.4; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) small { font-size: 13px !important; line-height: 1.5; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) code { font-size: 13px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .eyebrow { font-size: 14px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .status { font-size: 21px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .detail { font-size: 16px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) button,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) select,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) textarea,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) input:not([type="checkbox"]):not([type="radio"]) { min-height: 46px; font-size: 16px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) button { padding-left: 13px; padding-right: 13px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) input[type="checkbox"],
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) input[type="radio"] { width: 22px; height: 22px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .interface-mode-control { display: grid; gap: 10px; padding: 13px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .interface-mode-buttons { width: 100%; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .interface-mode-buttons button { min-height: 44px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .help-button { width: 40px; min-height: 40px; font-size: 20px !important; line-height: 38px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .switch { transform: scale(1.2); transform-origin: right center; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .small-switch { transform: scale(1.18); transform-origin: right center; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .status-card { min-height: 112px; padding: 19px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .popup-tabs button { min-height: 48px; font-size: 17px !important; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) :is(.recent-alarms-card, .extension-update-card, .health-card, .shift-crew-card, .shift-summary-card, .book-controls, .author-watch, .alert-policy-card, .dtm-card, .setup-test-card) { padding: 16px; border-radius: 13px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .fold-summary { min-height: 48px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .fold-summary::after { font-size: 20px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .recent-alarm-item { padding: 12px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .extension-update-actions,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .author-buttons { gap: 10px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .interval-control,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .dtm-interval-control,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .dtm-status-row,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .dtm-reminder-control { padding: 14px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .book-control-list { max-height: 260px; gap: 10px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .book-control-row { padding-top: 10px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .shift-crew-input-row,
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .shift-crew-hover-row { grid-template-columns: 72px minmax(0, 1fr); gap: 9px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .shift-crew-input-row input { height: 46px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .author-watch textarea { min-height: 110px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .advanced-settings-banner { align-items: flex-start; padding: 13px; }
+
+/* Give the denser Advanced-only rows enough room for the larger labels and fields. */
+body[data-interface-mode="large-advanced"] .quiet-hours-row { grid-template-columns: 1fr 105px auto 105px; gap: 8px; }
+body[data-interface-mode="large-advanced"] .health-row { grid-template-columns: 105px 1fr; gap: 10px; }
+body[data-interface-mode="large-advanced"] .book-diagnostics div { grid-template-columns: 110px 1fr; gap: 10px; }
+body[data-interface-mode="large-advanced"] .book-range-control input { width: 80px; }
+body[data-interface-mode="large-advanced"] .book-range-control select { width: 100px; }

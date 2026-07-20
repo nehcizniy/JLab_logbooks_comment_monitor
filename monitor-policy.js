@@ -1,5 +1,5 @@
 const MONITOR_SETTINGS_SCHEMA_VERSION = 4;
-const MONITOR_INTERFACE_MODES = ["simple", "advanced"];
+const MONITOR_INTERFACE_MODES = ["simple", "large", "advanced", "large-advanced"];
 const MONITOR_ALERT_TYPES = [
   { key: "comments", label: "Comments" },
   { key: "watchedNames", label: "Watched names" },

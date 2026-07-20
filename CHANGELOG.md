@@ -2,8 +2,15 @@
 
 ## Unreleased
 
+- Added a short standalone install and first-time setup guide to every packaged extension ZIP.
+- Added Large simple and Large advanced interfaces with a wider popup, larger typography, larger fields and buttons, and roomier spacing.
+- Kept Large simple focused on common controls while making every Advanced control available at the larger size in Large advanced.
+- Kept monitoring settings, baselines, hidden Advanced behaviors, and the selected tab intact when switching among all four interfaces.
+- Gave DTM monitoring its own independent automatic-check alarm and interval control.
+- Added a 1-minute DTM check option alongside 5, 10, 15, 30, and 60 minutes.
+- Kept DTM monitoring active when no individual logbooks are enabled, while preserving the main monitor switch as the overall pause control.
 - Moved DTM event status, the live DTM link, and recurring-reminder control into a dedicated DTM tab.
-- Made the DTM tab available in both Simple and Advanced interface modes.
+- Made the DTM tab available in all four interface modes.
 - Added New entry and Logbooks shortcuts beneath the popup's Check now and Clear alerts controls.
 
 ## 2.23.0

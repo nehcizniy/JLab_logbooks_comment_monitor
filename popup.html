@@ -29,7 +29,9 @@
       </div>
       <div class="interface-mode-buttons">
         <button type="button" data-interface-mode-button="simple" aria-pressed="true">Simple</button>
+        <button type="button" data-interface-mode-button="large" aria-pressed="false">Large simple</button>
         <button type="button" data-interface-mode-button="advanced" aria-pressed="false">Advanced</button>
+        <button type="button" data-interface-mode-button="large-advanced" aria-pressed="false">Large advanced</button>
       </div>
     </section>
 
@@ -42,7 +44,7 @@
       <strong>Quick help</strong>
       <ul>
         <li>Use the top switch to start or pause automatic checks.</li>
-        <li>Switch between Simple and Advanced at any time. Your settings and alarm history are preserved.</li>
+        <li>Switch between Simple, Large simple, Advanced, and Large advanced at any time. Your settings and alarm history are preserved.</li>
         <li>Use Check now for an immediate scan, New entry to open JLab's entry form, or Logbooks to open the main site.</li>
         <li>Open Recent alarms to review and reopen the latest alerts.</li>
         <li>Open Extension updates to check for a new release, update safely, or return to an earlier version.</li>
@@ -206,7 +208,7 @@
       <div class="dtm-card-heading">
         <div>
           <strong id="dtm-card-title">DTM beam-down events</strong>
-          <span>Checked with each enabled logbook scan</span>
+          <span>Runs on its own schedule</span>
         </div>
         <button id="open-dtm" type="button">Open DTM</button>
       </div>
@@ -217,6 +219,17 @@
           <span id="dtm-status-detail">Event openings, changes, and closures will appear here.</span>
         </div>
       </div>
+      <section class="dtm-interval-control">
+        <label for="dtm-interval">DTM check interval</label>
+        <select id="dtm-interval">
+          <option value="1">Every 1 minute</option>
+          <option value="5">Every 5 minutes</option>
+          <option value="10">Every 10 minutes</option>
+          <option value="15">Every 15 minutes</option>
+          <option value="30">Every 30 minutes</option>
+          <option value="60">Every 60 minutes</option>
+        </select>
+      </section>
       <div class="dtm-behavior-note">
         <strong>Event-change notifications</strong>
         <span>Open, changed, and closed events follow your selected Alert level and delivery channels.</span>

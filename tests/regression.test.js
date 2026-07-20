@@ -44,7 +44,9 @@ test("daily comment recovery overlaps 100 IDs and scans three times deeper", () 
 
 test("notification policy supports per-channel delivery, quiet hours, and snooze", () => {
   assert.equal(context.normalizeInterfaceMode(undefined), "simple");
+  assert.equal(context.normalizeInterfaceMode("large"), "large");
   assert.equal(context.normalizeInterfaceMode("advanced"), "advanced");
+  assert.equal(context.normalizeInterfaceMode("large-advanced"), "large-advanced");
   assert.equal(context.normalizeInterfaceMode("expert"), "simple");
   const preferences = context.defaultAlertPreferences();
   assert.equal(context.detectAlertPreset(preferences), "standard");
@@ -138,6 +140,7 @@ test("manifest and popup retain required extension structure", () => {
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
   const popupJs = fs.readFileSync(path.join(root, "popup.js"), "utf8");
+  const backgroundJs = fs.readFileSync(path.join(root, "background.js"), "utf8");
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
   assert.equal(ids.length, new Set(ids).size);
   for (const id of [
@@ -146,17 +149,24 @@ test("manifest and popup retain required extension structure", () => {
     "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide",
     "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
     "open-previous-versions", "dtm-status", "dtm-status-detail", "dtm-status-dot",
-    "open-dtm", "repeat-dtm-alerts", "new-entry", "open-logbooks"
+    "open-dtm", "dtm-interval", "repeat-dtm-alerts", "new-entry", "open-logbooks"
   ]) {
     assert.equal(ids.includes(id), true, `missing #${id}`);
   }
   assert.match(html, /data-interface-mode="simple"/);
+  assert.match(html, /data-interface-mode-button="large"/);
   assert.match(html, /data-interface-mode-button="advanced"/);
+  assert.match(html, /data-interface-mode-button="large-advanced"/);
   assert.match(html, /data-popup-tab="dtm"/);
   assert.match(html, /data-popup-view="dtm"/);
   assert.match(popupJs, /https:\/\/logbooks\.jlab\.org\/node\/add\/logentry/);
   assert.match(popupJs, /LOGBOOKS_HOME_URL = "https:\/\/logbooks\.jlab\.org\/"/);
-  assert.match(css, /body\[data-interface-mode="simple"\]/);
+  assert.match(backgroundJs, /const DTM_CHECK_ALARM = "jlab-dtm-check"/);
+  assert.match(backgroundJs, /const DTM_CHECK_INTERVAL_OPTIONS = \[1, 5, 10, 15, 30, 60\]/);
+  assert.match(backgroundJs, /if \(alarm\.name === DTM_CHECK_ALARM\) checkDtmEvents\(\)/);
+  assert.match(css, /body:is\(\[data-interface-mode="simple"\], \[data-interface-mode="large"\]\)/);
+  assert.match(css, /body:is\(\[data-interface-mode="large"\], \[data-interface-mode="large-advanced"\]\) \{ width: 480px; \}/);
+  assert.match(css, /body:is\(\[data-interface-mode="large"\], \[data-interface-mode="large-advanced"\]\) button/);
   assert.match(css, /data-active-popup-view="dtm"/);
   assert.equal(fs.existsSync(path.join(root, "update.html")), true);
   assert.equal(fs.existsSync(path.join(root, "extension-updates.js")), true);

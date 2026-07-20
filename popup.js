@@ -8,6 +8,7 @@ const helpButton = document.querySelector("#help-button");
 const helpPanel = document.querySelector("#help-panel");
 const openSetupGuideButton = document.querySelector("#open-setup-guide");
 const intervalInput = document.querySelector("#interval");
+const dtmIntervalInput = document.querySelector("#dtm-interval");
 const repeatDtmAlertsInput = document.querySelector("#repeat-dtm-alerts");
 const openDtmButton = document.querySelector("#open-dtm");
 const dtmStatusDot = document.querySelector("#dtm-status-dot");
@@ -155,7 +156,7 @@ const SETTINGS_BACKUP_VERSION = 1;
 const NEW_LOGBOOK_ENTRY_URL = "https://logbooks.jlab.org/node/add/logentry";
 const LOGBOOKS_HOME_URL = "https://logbooks.jlab.org/";
 const TRANSIENT_STORAGE_KEYS = new Set([
-  "checking", "lastError", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
+  "checking", "lastError", "dtmChecking", "lastDtmError", "lastDtmCheck", "lastDetectedDtmEvents", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
   "lastEmailError", "lastEmailAttempt", "lastEmailSentAt", "shiftCrewState",
   "shiftCrewChecking", "shiftCrewError", "lastShiftCrewCheck", "healthState",
   "lastSuccessfulCheck", "lastCommentRecoveryScan", "notificationsSnoozedUntil",
@@ -254,6 +255,11 @@ enabledInput.addEventListener("change", async () => {
 
 intervalInput.addEventListener("change", async () => {
   await chrome.storage.local.set({ intervalMinutes: Number(intervalInput.value) });
+  await render();
+});
+
+dtmIntervalInput.addEventListener("change", async () => {
+  await chrome.storage.local.set({ dtmIntervalMinutes: Number(dtmIntervalInput.value) });
   await render();
 });
 
@@ -426,6 +432,10 @@ function setActivePopupView(view) {
   }
 }
 
+function isFocusedInterfaceMode(value) {
+  return value === "simple" || value === "large";
+}
+
 async function openSetupWizard() {
   const state = await chrome.storage.local.get(["monitoredBooks", "enabledBooks", "intervalMinutes"]);
   const monitoredBooks = normalizeMonitoredBooks(state.monitoredBooks);
@@ -515,6 +525,7 @@ async function resetRecommendedSettings() {
   resetRecommendedButton.textContent = "Resetting…";
   await chrome.storage.local.set({
     intervalMinutes: 5,
+    dtmIntervalMinutes: 5,
     alertPreferences: alertPreferencesForPreset("standard"),
     repeatDtmAlerts: false,
     quietHours: normalizeQuietHours({ enabled: false }),
@@ -531,7 +542,7 @@ async function setInterfaceMode(value) {
   if (interfaceMode === currentInterfaceMode) return;
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
-  if (interfaceMode === "simple" && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
+  if (isFocusedInterfaceMode(interfaceMode) && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   await chrome.storage.local.set({ interfaceMode });
   await render();
 }
@@ -540,16 +551,20 @@ function renderInterfaceMode(state, monitoredBooks) {
   const interfaceMode = normalizeInterfaceMode(state.interfaceMode);
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
-  if (interfaceMode === "simple" && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
+  if (isFocusedInterfaceMode(interfaceMode) && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   for (const button of interfaceModeButtons) {
     button.setAttribute("aria-pressed", String(button.dataset.interfaceModeButton === interfaceMode));
   }
   interfaceModeDescription.textContent = interfaceMode === "simple"
     ? "Simple keeps the most-used controls on one page."
-    : "Advanced shows every monitoring and delivery control.";
+    : interfaceMode === "large"
+      ? "Large simple keeps focused controls with bigger type and buttons."
+      : interfaceMode === "large-advanced"
+        ? "Large advanced shows every control with bigger type and buttons."
+        : "Advanced shows every monitoring and delivery control.";
 
   const features = getActiveAdvancedFeatures(state, monitoredBooks);
-  advancedSettingsBanner.hidden = interfaceMode !== "simple" || !features.length;
+  advancedSettingsBanner.hidden = !isFocusedInterfaceMode(interfaceMode) || !features.length;
   advancedSettingsSummary.textContent = features.length
     ? `Still active: ${features.slice(0, 3).join(", ")}${features.length > 3 ? ` and ${features.length - 3} more` : ""}.`
     : "";
@@ -651,18 +666,14 @@ function renderAlertPolicyControls(state) {
   }
 }
 
-function renderDtmControls(state, enabled, activeBooks) {
+function renderDtmControls(state, enabled) {
   const health = normalizeHealthState(state.healthState).dtm;
   dtmStatusDot.className = "dot";
   if (!enabled) {
     dtmStatus.textContent = "DTM monitoring is paused";
     dtmStatusDetail.textContent = "Turn on the main monitor switch to resume DTM checks.";
     dtmStatusDot.classList.add("off");
-  } else if (!activeBooks.length) {
-    dtmStatus.textContent = "DTM is waiting for a logbook";
-    dtmStatusDetail.textContent = "Enable at least one logbook to include DTM in automatic checks.";
-    dtmStatusDot.classList.add("off");
-  } else if (state.checking || health.status === "checking") {
+  } else if (state.dtmChecking || health.status === "checking") {
     dtmStatus.textContent = "Checking DTM events…";
     dtmStatusDetail.textContent = "Reading the live JLab DTM open-events page.";
     dtmStatusDot.classList.add("working");
@@ -684,15 +695,19 @@ function renderDtmControls(state, enabled, activeBooks) {
 async function renderHealthDashboard(state, _intervalMinutes) {
   healthList.replaceChildren();
   const health = normalizeHealthState(state.healthState);
-  const [monitorAlarm, shiftCrewAlarm] = await Promise.all([
+  const [monitorAlarm, dtmAlarm, shiftCrewAlarm] = await Promise.all([
     chrome.alarms.get("jlab-comment-check"),
+    chrome.alarms.get("jlab-dtm-check"),
     chrome.alarms.get("jlab-shift-crew-daily")
   ]);
   const nextCheck = Number(monitorAlarm?.scheduledTime || 0);
+  const nextDtmCheck = Number(dtmAlarm?.scheduledTime || 0);
   const nextShiftCrewCheck = Number(shiftCrewAlarm?.scheduledTime || 0);
-  appendHealthRow("Schedule", nextCheck
-    ? `Next regular check ${formatHealthTime(nextCheck)} · Shift crew ${nextShiftCrewCheck ? formatHealthTime(nextShiftCrewCheck) : "not scheduled"} · Last successful ${formatHealthTime(state.lastSuccessfulCheck)}`
-    : "Waiting for the first successful check", state.lastError ? "error" : "ok");
+  appendHealthRow(
+    "Schedule",
+    `Logbooks ${nextCheck ? formatHealthTime(nextCheck) : "not scheduled"} · DTM ${nextDtmCheck ? formatHealthTime(nextDtmCheck) : "not scheduled"} · Shift crew ${nextShiftCrewCheck ? formatHealthTime(nextShiftCrewCheck) : "not scheduled"}`,
+    state.lastError || state.lastDtmError ? "error" : "ok"
+  );
   const labels = { logbooks: "Logbooks", comments: "Comments", dtm: "DTM", shiftCrew: "Shift crew", email: "Email" };
   for (const source of MONITOR_HEALTH_SOURCES) {
     const item = health[source];
@@ -872,7 +887,7 @@ function validateSettingsBackup(backup) {
 
 async function render() {
   const state = await chrome.storage.local.get([
-    "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "checking", "initialized", "lastCheck", "lastError", "trackedEntries", "watchedAuthors",
+    "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "dtmIntervalMinutes", "checking", "dtmChecking", "initialized", "lastCheck", "lastError", "lastDtmError", "trackedEntries", "watchedAuthors",
     "lastDetectedEvents", "bookDiagnostics", "commentCursor", "shiftSummariesByBook", "repeatDtmAlerts",
     "shiftSummaryEditEnabledBooks", "shiftSummaryEditError", "alertHistory", "emailConfig", "emailAuth",
     "lastEmailError", "lastEmailSentAt", "shiftCrewSchedules", "shiftCrewState", "shiftCrewChecking",
@@ -891,9 +906,13 @@ async function render() {
   const intervalMinutes = [5, 10, 15, 30, 60].includes(Number(state.intervalMinutes))
     ? Number(state.intervalMinutes)
     : 5;
+  const dtmIntervalMinutes = [1, 5, 10, 15, 30, 60].includes(Number(state.dtmIntervalMinutes))
+    ? Number(state.dtmIntervalMinutes)
+    : 5;
   renderInterfaceMode(state, monitoredBooks);
   enabledInput.checked = enabled;
   intervalInput.value = String(intervalMinutes);
+  dtmIntervalInput.value = String(dtmIntervalMinutes);
   repeatDtmAlertsInput.checked = state.repeatDtmAlerts === true;
   const shiftEditEnabledBookSlugs = normalizeEnabledSlugs(state.shiftSummaryEditEnabledBooks, monitoredBooks);
   renderBookControls(monitoredBooks, enabledBookSlugs);
@@ -909,7 +928,7 @@ async function render() {
   renderExtensionUpdate(state.extensionUpdateState, state.trackExtensionUpdates !== false);
   renderShiftCrewControls(state);
   renderAlertPolicyControls(state);
-  renderDtmControls(state, enabled, activeBooks);
+  renderDtmControls(state, enabled);
   await renderHealthDashboard(state, intervalMinutes);
   renderEmailControls(state);
   if (!authorsLoaded) {
@@ -927,27 +946,27 @@ async function render() {
     statusText.textContent = "Monitor is off";
     detailText.textContent = "No checks will run until you turn it on.";
     statusDot.classList.add("off");
-  } else if (!activeBooks.length) {
-    statusText.textContent = "No logbooks selected";
-    detailText.textContent = "Add or turn on a logbook to start automatic checks.";
-    statusDot.classList.add("off");
   } else if (state.checking) {
-    statusText.textContent = currentInterfaceMode === "simple" ? "Checking for updates…" : `Checking ${activeBookLabel}…`;
-    detailText.textContent = currentInterfaceMode === "simple"
-      ? "The monitor is checking logbooks, comments, and DTM events now."
-      : "Checking new comment permalinks, entries, and beam events.";
+    statusText.textContent = isFocusedInterfaceMode(currentInterfaceMode) ? "Checking for updates…" : `Checking ${activeBookLabel}…`;
+    detailText.textContent = isFocusedInterfaceMode(currentInterfaceMode)
+      ? "The monitor is checking logbooks and comments now."
+      : "Checking new comment permalinks and entries.";
     statusDot.classList.add("working");
   } else if (activeError) {
-    statusText.textContent = currentInterfaceMode === "simple" ? "Something needs attention" : `${activeError.label} needs attention`;
+    statusText.textContent = isFocusedInterfaceMode(currentInterfaceMode) ? "Something needs attention" : `${activeError.label} needs attention`;
     detailText.textContent = activeError.message;
     statusDot.classList.add("error");
+  } else if (!activeBooks.length) {
+    statusText.textContent = "DTM monitoring is active";
+    detailText.textContent = `No logbooks selected · DTM checks every ${dtmIntervalMinutes} ${dtmIntervalMinutes === 1 ? "minute" : "minutes"}.`;
+    statusDot.classList.add("on");
   } else if (!state.initialized) {
     statusText.textContent = "Ready to establish baseline";
     detailText.textContent = "The first successful check will not alert for existing comments.";
     statusDot.classList.add("working");
   } else {
     const checked = state.lastCheck ? new Date(state.lastCheck).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "not yet";
-    if (currentInterfaceMode === "simple") {
+    if (isFocusedInterfaceMode(currentInterfaceMode)) {
       statusText.textContent = "Everything is working";
       detailText.textContent = `Monitoring ${activeBookLabel} every ${intervalMinutes} minutes · Last checked ${checked}`;
     } else {
@@ -1009,6 +1028,7 @@ function renderEmailControls(state) {
   }
   disconnectEmailButton.disabled = !auth.provider;
   testEmailButton.disabled = !matchesSelectedProvider;
+
 }
 
 function renderEmailProviderSettings() {
@@ -1628,13 +1648,9 @@ function renderDiagnostics(diagnostics, monitoredBooks, enabledBookSlugs) {
       bookDiagnostics.append(row);
       continue;
     }
-    const event = data.pageEvent;
-    const eventText = event?.status === "open"
-      ? `OPEN EVENT: ${event.title}`
-      : "No open event banner detected";
     value.textContent = data.newestLognumber
-      ? `Newest #${data.newestLognumber} · ${data.newestAuthor} · Comment monitoring active · ${eventText}`
-      : eventText;
+      ? `Newest #${data.newestLognumber} · ${data.newestAuthor} · Comment monitoring active`
+      : "No entries returned";
     row.append(name, value);
     bookDiagnostics.append(row);
   }
