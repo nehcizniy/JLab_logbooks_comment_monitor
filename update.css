@@ -32,3 +32,24 @@ code { padding: 1px 4px; border-radius: 4px; background: #eaf1f8; color: #33445e
 .footnote { margin: 16px 4px 0; color: #738095; font-size: 11px; line-height: 1.5; }
 @media (max-width: 720px) { .actions, .guide-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { main { width: min(100% - 22px, 920px); padding-top: 24px; } .version-card, .guide-grid, .actions { grid-template-columns: 1fr; } .version-card > *, #update-status, .actions { grid-column: 1; } }
+
+:root[data-theme="dark"] { color-scheme: dark; color: #e7edf6; background: #0d1420; }
+:root[data-theme="dark"] body { background: linear-gradient(145deg, #111a28, #0b121c); }
+:root[data-theme="dark"] h1,
+:root[data-theme="dark"] h2 { color: #dceafa; }
+:root[data-theme="dark"] .eyebrow,
+:root[data-theme="dark"] .step-label { color: #8bb7e5; }
+:root[data-theme="dark"] :is(.intro, #update-status, ol, .footnote) { color: #adbdcf; }
+:root[data-theme="dark"] :is(.version-card, .guide-card) { border-color: #34465c; background: #172231; box-shadow: none; }
+:root[data-theme="dark"] .version-card > div:not(.actions) { background: #203047; }
+:root[data-theme="dark"] .version-card span { color: #aebdd0; }
+:root[data-theme="dark"] .version-card strong { color: #a9cff5; }
+:root[data-theme="dark"] button { border-color: #43566e; background: #111b29; color: #e7edf6; }
+:root[data-theme="dark"] button:hover:not(:disabled) { border-color: #6685a8; background: #22334a; }
+:root[data-theme="dark"] button.primary { border-color: #4b83bd; background: #376fa9; }
+:root[data-theme="dark"] .warning-card { border-color: #816d36; background: #342d1b; }
+:root[data-theme="dark"] .warning-card strong { color: #f0d486; }
+:root[data-theme="dark"] .warning-card p { color: #d7c28b; }
+:root[data-theme="dark"] #update-status.available { color: #71d5aa; }
+:root[data-theme="dark"] #update-status.error { color: #ff9ea8; }
+:root[data-theme="dark"] code { background: #24364b; color: #c6ddf3; }

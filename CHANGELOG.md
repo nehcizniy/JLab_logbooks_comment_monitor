@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 3.0.0
+
+- Replaced the Simple-mode Updates tab with **Settings** and moved Extension updates, the automatic check interval, Alarm level, Monitored logbooks, watched names, and Test my setup there.
+- Merged the theme control into a foldable Interface section and kept a one-click button visible while it is folded; the button uses the opposite theme color and changes between **Dark mode** and **Light mode**.
+- Shortened the Alarm level reset button label to **Use default**.
+- Removed the yellow **Switch to Advanced** notice from Simple and Large simple modes.
+- Added Advanced-mode A/B/C/D Shift Crew controls: hover previews a Hall, while clicking adds or removes it from the persistent crew list shown in Simple modes.
+- Kept the Hall buttons hidden in Simple modes and preserved all four Hall configuration rows when Shift Crew is expanded.
+- Added a persistent Dark mode switch for all four popup interfaces, the setup guide, and the extension update page.
+- Included the Dark mode choice in settings backup and restore.
 - Added a short standalone install and first-time setup guide to every packaged extension ZIP.
 - Added Large simple and Large advanced interfaces with a wider popup, larger typography, larger fields and buttons, and roomier spacing.
 - Kept Large simple focused on common controls while making every Advanced control available at the larger size in Large advanced.
@@ -37,7 +47,6 @@
 - Added one-click Simple and Advanced interface modes backed by the same monitoring engine.
 - Made Simple mode the default and gathered the most-used controls into a single focused page.
 - Preserved every setting and alarm when switching modes or exporting a settings backup.
-- Added a Simple-mode notice when hidden advanced settings remain active.
 - Kept current Shift Crew, Hall A–D schedule URL entry, and shift-summary links available in Simple mode; per-hall schedule-change alerts remain Advanced.
 
 ## 2.20.0

@@ -1,5 +1,7 @@
-const MONITOR_SETTINGS_SCHEMA_VERSION = 4;
+const MONITOR_SETTINGS_SCHEMA_VERSION = 6;
 const MONITOR_INTERFACE_MODES = ["simple", "large", "advanced", "large-advanced"];
+const MONITOR_THEME_MODES = ["light", "dark"];
+const MONITOR_SHIFT_CREW_HALLS = ["hallA", "hallB", "hallC", "hallD"];
 const MONITOR_ALERT_TYPES = [
   { key: "comments", label: "Comments" },
   { key: "watchedNames", label: "Watched names" },
@@ -11,6 +13,16 @@ const MONITOR_ALERT_PRESETS = ["essential", "standard", "everything"];
 
 function normalizeInterfaceMode(value) {
   return MONITOR_INTERFACE_MODES.includes(value) ? value : "simple";
+}
+
+function normalizeThemeMode(value) {
+  return MONITOR_THEME_MODES.includes(value) ? value : "light";
+}
+
+function normalizeSimpleShiftCrewHalls(value) {
+  if (!Array.isArray(value)) return [...MONITOR_SHIFT_CREW_HALLS];
+  const selected = new Set(value.map(String));
+  return MONITOR_SHIFT_CREW_HALLS.filter((hall) => selected.has(hall));
 }
 
 function defaultAlertPreferences() {

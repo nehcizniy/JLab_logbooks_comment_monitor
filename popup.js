@@ -53,9 +53,7 @@ const popupTabButtons = [...document.querySelectorAll("[data-popup-tab]")];
 const popupViewElements = [...document.querySelectorAll("[data-popup-view]")];
 const interfaceModeButtons = [...document.querySelectorAll("[data-interface-mode-button]")];
 const interfaceModeDescription = document.querySelector("#interface-mode-description");
-const advancedSettingsBanner = document.querySelector("#advanced-settings-banner");
-const advancedSettingsSummary = document.querySelector("#advanced-settings-summary");
-const switchToAdvancedButton = document.querySelector("#switch-to-advanced");
+const darkModeInput = document.querySelector("#dark-mode");
 const healthList = document.querySelector("#health-list");
 const copyDiagnosticsButton = document.querySelector("#copy-diagnostics");
 const copyDiagnosticsStatus = document.querySelector("#copy-diagnostics-status");
@@ -77,6 +75,8 @@ const saveShiftCrewButton = document.querySelector("#save-shift-crew");
 const shiftCrewDetails = document.querySelector("#shift-crew-details");
 const shiftCrewStatus = document.querySelector("#shift-crew-status");
 const SHIFT_CREW_HALLS = ["hallA", "hallB", "hallC", "hallD"];
+const SHIFT_CREW_LABELS = { hallA: "Hall A", hallB: "Hall B", hallC: "Hall C", hallD: "Hall D" };
+const shiftCrewTabButtons = [...document.querySelectorAll("[data-shift-crew-tab]")];
 const SHIFT_CREW_INPUTS = {
   hallA: document.querySelector("#shift-crew-url-hall-a"),
   hallB: document.querySelector("#shift-crew-url-hall-b"),
@@ -95,18 +95,9 @@ const SHIFT_CREW_LINKS = {
   hallC: document.querySelector("#shift-crew-link-hall-c"),
   hallD: document.querySelector("#shift-crew-link-hall-d")
 };
-const SHIFT_CREW_HOVER = {
-  hallA: document.querySelector("#shift-crew-hover-hall-a"),
-  hallB: document.querySelector("#shift-crew-hover-hall-b"),
-  hallC: document.querySelector("#shift-crew-hover-hall-c"),
-  hallD: document.querySelector("#shift-crew-hover-hall-d")
-};
-const SHIFT_CREW_HOVER_LINKS = {
-  hallA: document.querySelector("#shift-crew-hover-link-hall-a"),
-  hallB: document.querySelector("#shift-crew-hover-link-hall-b"),
-  hallC: document.querySelector("#shift-crew-hover-link-hall-c"),
-  hallD: document.querySelector("#shift-crew-hover-link-hall-d")
-};
+const shiftCrewSimpleList = document.querySelector("#shift-crew-simple-list");
+const shiftCrewHoverCurrent = document.querySelector("#shift-crew-hover-current");
+const shiftCrewHoverLink = document.querySelector("#shift-crew-hover-link");
 const SHIFT_CREW_ALERT_INPUTS = {
   hallA: document.querySelector("#shift-crew-alert-hall-a"),
   hallB: document.querySelector("#shift-crew-alert-hall-b"),
@@ -142,11 +133,13 @@ let authorsLoaded = false;
 let recentAlarmLimit = 5;
 let emailConfigLoaded = false;
 let shiftCrewConfigLoaded = false;
+let previewShiftCrewHall = "hallA";
+let lastShiftCrewRenderState = null;
 let currentInterfaceMode = "simple";
 let currentSetupWizardStep = 0;
 let currentExtensionUpdateDownloadUrl = "";
 const POPUP_VIEWS = ["overview", "dtm", "shifts", "alerts", "settings"];
-const SIMPLE_POPUP_VIEWS = ["overview", "dtm"];
+const SIMPLE_POPUP_VIEWS = ["overview", "dtm", "settings"];
 let activePopupView = POPUP_VIEWS.includes(localStorage.getItem("jlab-popup-view"))
   ? localStorage.getItem("jlab-popup-view")
   : "overview";
@@ -177,7 +170,13 @@ for (const button of popupTabButtons) {
 for (const button of interfaceModeButtons) {
   button.addEventListener("click", () => setInterfaceMode(button.dataset.interfaceModeButton));
 }
-switchToAdvancedButton.addEventListener("click", () => setInterfaceMode("advanced"));
+darkModeInput.addEventListener("click", async (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const darkModeEnabled = darkModeInput.getAttribute("aria-pressed") !== "true";
+  renderThemeButton(darkModeEnabled);
+  await chrome.storage.local.set({ themeMode: darkModeEnabled ? "dark" : "light" });
+});
 
 checkExtensionUpdateButton.addEventListener("click", checkExtensionUpdateFromPopup);
 trackExtensionUpdatesInput.addEventListener("change", async () => {
@@ -288,9 +287,38 @@ for (const input of Object.values(SHIFT_CREW_INPUTS)) {
     if (!saveShiftCrewButton.disabled) saveShiftCrewSchedules();
   });
 }
-for (const link of Object.values(SHIFT_CREW_HOVER_LINKS)) {
-  link.addEventListener("click", (event) => event.stopPropagation());
+for (const button of shiftCrewTabButtons) {
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const hall = button.dataset.shiftCrewTab;
+    const selectedHalls = new Set(normalizeSimpleShiftCrewHalls(lastShiftCrewRenderState?.simpleShiftCrewHalls));
+    if (selectedHalls.has(hall)) selectedHalls.delete(hall);
+    else selectedHalls.add(hall);
+    await chrome.storage.local.set({
+      simpleShiftCrewHalls: SHIFT_CREW_HALLS.filter((item) => selectedHalls.has(item))
+    });
+    await render();
+  });
+  button.addEventListener("mouseenter", () => previewShiftCrew(button.dataset.shiftCrewTab));
+  button.addEventListener("focus", () => previewShiftCrew(button.dataset.shiftCrewTab));
+  button.addEventListener("keydown", async (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const currentIndex = SHIFT_CREW_HALLS.indexOf(previewShiftCrewHall);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? SHIFT_CREW_HALLS.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + SHIFT_CREW_HALLS.length) % SHIFT_CREW_HALLS.length;
+    const nextButton = shiftCrewTabButtons.find((item) => item.dataset.shiftCrewTab === SHIFT_CREW_HALLS[nextIndex]);
+    previewShiftCrewHall = SHIFT_CREW_HALLS[nextIndex];
+    renderAdvancedShiftCrewPreview(lastShiftCrewRenderState);
+    nextButton?.focus();
+  });
 }
+shiftCrewHoverLink.addEventListener("click", (event) => event.stopPropagation());
 for (const input of Object.values(SHIFT_CREW_ALERT_INPUTS)) {
   input.addEventListener("change", async () => {
     const shiftCrewAlertEnabledHalls = SHIFT_CREW_HALLS.filter((hall) => SHIFT_CREW_ALERT_INPUTS[hall].checked);
@@ -532,9 +560,9 @@ async function resetRecommendedSettings() {
     notificationsSnoozedUntil: 0
   });
   await render();
-  resetRecommendedStatus.textContent = "Recommended defaults restored. Logbooks, names, schedules, email setup, and alarm history were kept.";
+  resetRecommendedStatus.textContent = "Default settings restored. Logbooks, names, schedules, email setup, and alarm history were kept.";
   resetRecommendedButton.disabled = false;
-  resetRecommendedButton.textContent = "Use recommended defaults";
+  resetRecommendedButton.textContent = "Use default";
 }
 
 async function setInterfaceMode(value) {
@@ -547,7 +575,7 @@ async function setInterfaceMode(value) {
   await render();
 }
 
-function renderInterfaceMode(state, monitoredBooks) {
+function renderInterfaceMode(state) {
   const interfaceMode = normalizeInterfaceMode(state.interfaceMode);
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
@@ -563,30 +591,12 @@ function renderInterfaceMode(state, monitoredBooks) {
         ? "Large advanced shows every control with bigger type and buttons."
         : "Advanced shows every monitoring and delivery control.";
 
-  const features = getActiveAdvancedFeatures(state, monitoredBooks);
-  advancedSettingsBanner.hidden = !isFocusedInterfaceMode(interfaceMode) || !features.length;
-  advancedSettingsSummary.textContent = features.length
-    ? `Still active: ${features.slice(0, 3).join(", ")}${features.length > 3 ? ` and ${features.length - 3} more` : ""}.`
-    : "";
 }
 
-function getActiveAdvancedFeatures(state, monitoredBooks) {
-  const features = [];
-  const preferences = normalizeAlertPreferences(state.alertPreferences);
-  const alertPreset = detectAlertPreset(preferences);
-  if (alertPreset === "custom") features.push("custom alert channels");
-  if (normalizeQuietHours(state.quietHours).enabled) features.push("quiet hours");
-  if (state.emailConfig?.enabled === true) features.push("email alerts");
-  if ((state.shiftCrewAlertEnabledHalls || []).length) features.push("Shift Crew change alerts");
-  if (monitoredBooks.some((book) => book.rangeType !== "entries" || Number(book.rangeValue) !== 100)) {
-    features.push("custom logbook ranges");
-  }
-  const hasStoredShiftEditChoices = Array.isArray(state.shiftSummaryEditEnabledBooks);
-  const shiftEditBooks = new Set(hasStoredShiftEditChoices ? state.shiftSummaryEditEnabledBooks : []);
-  if (hasStoredShiftEditChoices && monitoredBooks.some((book) => !shiftEditBooks.has(book.slug))) {
-    features.push("custom shift-summary edit alerts");
-  }
-  return features;
+function renderThemeButton(darkModeEnabled) {
+  darkModeInput.setAttribute("aria-pressed", String(darkModeEnabled));
+  darkModeInput.setAttribute("aria-label", `Switch to ${darkModeEnabled ? "light" : "dark"} mode`);
+  darkModeInput.textContent = darkModeEnabled ? "Light mode" : "Dark mode";
 }
 
 function initializeAlertPolicyRows() {
@@ -891,9 +901,9 @@ async function render() {
     "lastDetectedEvents", "bookDiagnostics", "commentCursor", "shiftSummariesByBook", "repeatDtmAlerts",
     "shiftSummaryEditEnabledBooks", "shiftSummaryEditError", "alertHistory", "emailConfig", "emailAuth",
     "lastEmailError", "lastEmailSentAt", "shiftCrewSchedules", "shiftCrewState", "shiftCrewChecking",
-    "shiftCrewError", "lastShiftCrewCheck", "shiftCrewAlertEnabledHalls", "alertPreferences", "quietHours",
+    "shiftCrewError", "lastShiftCrewCheck", "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "alertPreferences", "quietHours",
     "notificationsSnoozedUntil", "healthState", "lastSuccessfulCheck", "commentScanDiagnostic",
-    "lastCommentRecoveryScan", "interfaceMode", "onboardingCompleted", "extensionUpdateState",
+    "lastCommentRecoveryScan", "interfaceMode", "themeMode", "onboardingCompleted", "extensionUpdateState",
     "trackExtensionUpdates"
   ]);
   const enabled = state.enabled !== false;
@@ -909,7 +919,9 @@ async function render() {
   const dtmIntervalMinutes = [1, 5, 10, 15, 30, 60].includes(Number(state.dtmIntervalMinutes))
     ? Number(state.dtmIntervalMinutes)
     : 5;
-  renderInterfaceMode(state, monitoredBooks);
+  const darkModeEnabled = normalizeThemeMode(state.themeMode) === "dark";
+  renderThemeButton(darkModeEnabled);
+  renderInterfaceMode(state);
   enabledInput.checked = enabled;
   intervalInput.value = String(intervalMinutes);
   dtmIntervalInput.value = String(dtmIntervalMinutes);
@@ -1195,8 +1207,10 @@ async function saveShiftCrewSchedules() {
 }
 
 function renderShiftCrewControls(state) {
+  lastShiftCrewRenderState = state;
   const schedules = normalizeShiftCrewSchedulesForPopup(state.shiftCrewSchedules);
   const alertEnabledHalls = new Set(Array.isArray(state.shiftCrewAlertEnabledHalls) ? state.shiftCrewAlertEnabledHalls : []);
+  const simpleHalls = normalizeSimpleShiftCrewHalls(state.simpleShiftCrewHalls);
   if (!shiftCrewConfigLoaded) {
     for (const hall of SHIFT_CREW_HALLS) SHIFT_CREW_INPUTS[hall].value = schedules[hall];
     shiftCrewConfigLoaded = true;
@@ -1205,14 +1219,19 @@ function renderShiftCrewControls(state) {
   for (const hall of SHIFT_CREW_HALLS) {
     const display = formatCurrentShiftCrew(schedules[hall], state.shiftCrewState?.[hall]);
     configureShiftCrewLink(SHIFT_CREW_LINKS[hall], schedules[hall]);
-    configureShiftCrewLink(SHIFT_CREW_HOVER_LINKS[hall], schedules[hall]);
     SHIFT_CREW_CURRENT[hall].textContent = display.text;
     SHIFT_CREW_CURRENT[hall].title = display.title;
-    SHIFT_CREW_HOVER[hall].textContent = display.text;
-    SHIFT_CREW_HOVER[hall].title = display.title;
     SHIFT_CREW_ALERT_INPUTS[hall].checked = alertEnabledHalls.has(hall);
     SHIFT_CREW_ALERT_INPUTS[hall].disabled = !schedules[hall];
   }
+
+  for (const button of shiftCrewTabButtons) {
+    const selected = simpleHalls.includes(button.dataset.shiftCrewTab);
+    button.setAttribute("aria-pressed", String(selected));
+    button.title = `${selected ? "Remove" : "Add"} ${SHIFT_CREW_LABELS[button.dataset.shiftCrewTab]} ${selected ? "from" : "to"} the Simple-mode list`;
+  }
+  renderAdvancedShiftCrewPreview(state, schedules);
+  renderSimpleShiftCrewList(state, schedules, simpleHalls);
 
   const configuredCount = Object.values(schedules).filter(Boolean).length;
   shiftCrewStatus.className = state.shiftCrewError ? "shift-crew-status error" : "shift-crew-status";
@@ -1231,6 +1250,45 @@ function renderShiftCrewControls(state) {
     shiftCrewStatus.textContent = "URLs saved. Waiting for the first daily check.";
   } else {
     shiftCrewStatus.textContent = "No shift schedules configured.";
+  }
+}
+
+function previewShiftCrew(value) {
+  previewShiftCrewHall = SHIFT_CREW_HALLS.includes(value) ? value : "hallA";
+  renderAdvancedShiftCrewPreview(lastShiftCrewRenderState);
+}
+
+function renderAdvancedShiftCrewPreview(state, schedules = normalizeShiftCrewSchedulesForPopup(state?.shiftCrewSchedules)) {
+  const hall = SHIFT_CREW_HALLS.includes(previewShiftCrewHall) ? previewShiftCrewHall : "hallA";
+  const display = formatCurrentShiftCrew(schedules[hall], state?.shiftCrewState?.[hall]);
+  shiftCrewHoverLink.textContent = SHIFT_CREW_LABELS[hall];
+  configureShiftCrewLink(shiftCrewHoverLink, schedules[hall]);
+  shiftCrewHoverCurrent.textContent = display.text;
+  shiftCrewHoverCurrent.title = display.title;
+}
+
+function renderSimpleShiftCrewList(state, schedules, halls) {
+  shiftCrewSimpleList.replaceChildren();
+  if (!halls.length) {
+    const empty = document.createElement("span");
+    empty.className = "shift-crew-simple-empty";
+    empty.textContent = "No Halls selected. Use the A/B/C/D buttons in Advanced mode to add one.";
+    shiftCrewSimpleList.append(empty);
+    return;
+  }
+  for (const hall of halls) {
+    const display = formatCurrentShiftCrew(schedules[hall], state.shiftCrewState?.[hall]);
+    const row = document.createElement("div");
+    row.className = "shift-crew-hover-row";
+    const link = document.createElement("a");
+    link.textContent = SHIFT_CREW_LABELS[hall];
+    configureShiftCrewLink(link, schedules[hall]);
+    link.addEventListener("click", (event) => event.stopPropagation());
+    const detail = document.createElement("span");
+    detail.textContent = display.text;
+    detail.title = display.title;
+    row.append(link, detail);
+    shiftCrewSimpleList.append(row);
   }
 }
 

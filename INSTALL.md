@@ -23,7 +23,8 @@ This guide works for Google Chrome and most Chromium-based desktop browsers on m
    - **Large simple** for the same controls with larger text and buttons.
    - **Advanced** for every setting.
    - **Large advanced** for every setting with larger text and buttons.
-6. Select **Test my setup** and allow Chrome system notifications if asked.
+6. Turn on **Dark mode** if you prefer a darker display. It works with every interface size.
+7. Select **Test my setup** and allow Chrome system notifications if asked.
 
 The extension does **not ask for, read, or store your password**. You sign in directly on JLab's website.
 

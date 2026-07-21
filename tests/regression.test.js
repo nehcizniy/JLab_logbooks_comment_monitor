@@ -48,6 +48,11 @@ test("notification policy supports per-channel delivery, quiet hours, and snooze
   assert.equal(context.normalizeInterfaceMode("advanced"), "advanced");
   assert.equal(context.normalizeInterfaceMode("large-advanced"), "large-advanced");
   assert.equal(context.normalizeInterfaceMode("expert"), "simple");
+  assert.equal(context.normalizeThemeMode(undefined), "light");
+  assert.equal(context.normalizeThemeMode("dark"), "dark");
+  assert.equal(context.normalizeThemeMode("system"), "light");
+  assert.deepEqual([...context.normalizeSimpleShiftCrewHalls(undefined)], ["hallA", "hallB", "hallC", "hallD"]);
+  assert.deepEqual([...context.normalizeSimpleShiftCrewHalls(["hallD", "hallB", "unknown"])], ["hallB", "hallD"]);
   const preferences = context.defaultAlertPreferences();
   assert.equal(context.detectAlertPreset(preferences), "standard");
   assert.equal(context.alertPreferencesForPreset("essential").comments.system, false);
@@ -135,7 +140,7 @@ test("compares extension releases and selects the packaged ZIP", () => {
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "2.23.0");
+  assert.equal(manifest.version, "3.0.0");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
@@ -145,29 +150,56 @@ test("manifest and popup retain required extension structure", () => {
   assert.equal(ids.length, new Set(ids).size);
   for (const id of [
     "health-list", "alert-policy-list", "alert-preset", "shift-crew-details", "copy-diagnostics",
-    "test-setup", "interface-mode-description", "advanced-settings-banner", "switch-to-advanced",
+    "test-setup", "interface-mode-description",
     "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide",
     "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
     "open-previous-versions", "dtm-status", "dtm-status-detail", "dtm-status-dot",
-    "open-dtm", "dtm-interval", "repeat-dtm-alerts", "new-entry", "open-logbooks"
+    "open-dtm", "dtm-interval", "repeat-dtm-alerts", "new-entry", "open-logbooks", "dark-mode",
+    "shift-crew-hover-link", "shift-crew-hover-current", "shift-crew-simple-list"
   ]) {
     assert.equal(ids.includes(id), true, `missing #${id}`);
   }
+  assert.doesNotMatch(html, /advanced-settings-banner|switch-to-advanced/);
   assert.match(html, /data-interface-mode="simple"/);
   assert.match(html, /data-interface-mode-button="large"/);
   assert.match(html, /data-interface-mode-button="advanced"/);
   assert.match(html, /data-interface-mode-button="large-advanced"/);
+  assert.match(html, /<details id="interface-mode-details" class="interface-mode-control">/);
+  assert.match(html, /<button id="dark-mode"[^>]+aria-pressed="false"[^>]*>Dark mode<\/button>/);
+  assert.match(popupJs, /darkModeInput\.addEventListener\("click"/);
+  assert.match(popupJs, /event\.stopPropagation\(\)/);
+  assert.match(popupJs, /darkModeInput\.textContent = darkModeEnabled \? "Light mode" : "Dark mode"/);
+  assert.match(html, /<script src="theme\.js"><\/script>/);
   assert.match(html, /data-popup-tab="dtm"/);
   assert.match(html, /data-popup-view="dtm"/);
+  assert.doesNotMatch(html, /data-popup-tab="updates"/);
+  assert.match(html, /data-popup-tab="alerts"[\s\S]*data-popup-tab="settings"/);
+  assert.match(html, /id="extension-update-details"[^>]+data-popup-view="settings"[^>]+data-simple-settings/);
+  assert.match(html, /class="interval-control"[^>]+data-simple-settings/);
+  assert.match(html, /class="alert-policy-card"[^>]+data-simple-settings/);
+  assert.match(html, /class="book-controls"[^>]+data-simple-settings/);
+  assert.match(html, /class="author-watch"[^>]+data-simple-settings/);
+  assert.match(html, /class="setup-test-card"[^>]+data-simple-settings/);
+  assert.match(popupJs, /SIMPLE_POPUP_VIEWS = \["overview", "dtm", "settings"\]/);
+  assert.equal([...html.matchAll(/data-shift-crew-tab="hall[A-D]"/g)].length, 4);
+  assert.equal([...html.matchAll(/class="shift-crew-input-row"/g)].length, 4);
+  assert.match(html, /shift-crew-summary[\s\S]*shift-crew-tabs[\s\S]*<\/summary>/);
+  assert.match(popupJs, /button\.addEventListener\("mouseenter", \(\) => previewShiftCrew/);
+  assert.match(popupJs, /simpleShiftCrewHalls/);
+  assert.match(popupJs, /function renderSimpleShiftCrewList\(/);
   assert.match(popupJs, /https:\/\/logbooks\.jlab\.org\/node\/add\/logentry/);
   assert.match(popupJs, /LOGBOOKS_HOME_URL = "https:\/\/logbooks\.jlab\.org\/"/);
   assert.match(backgroundJs, /const DTM_CHECK_ALARM = "jlab-dtm-check"/);
   assert.match(backgroundJs, /const DTM_CHECK_INTERVAL_OPTIONS = \[1, 5, 10, 15, 30, 60\]/);
   assert.match(backgroundJs, /if \(alarm\.name === DTM_CHECK_ALARM\) checkDtmEvents\(\)/);
   assert.match(css, /body:is\(\[data-interface-mode="simple"\], \[data-interface-mode="large"\]\)/);
+  assert.match(css, /data-interface-mode="large"\]\) \.shift-crew-tabs \{ display: none !important; \}/);
   assert.match(css, /body:is\(\[data-interface-mode="large"\], \[data-interface-mode="large-advanced"\]\) \{ width: 480px; \}/);
   assert.match(css, /body:is\(\[data-interface-mode="large"\], \[data-interface-mode="large-advanced"\]\) button/);
   assert.match(css, /data-active-popup-view="dtm"/);
+  assert.match(css, /:root\[data-theme="dark"\]/);
+  assert.match(backgroundJs, /themeMode: normalizeThemeMode\(state\.themeMode\)/);
+  assert.equal(fs.existsSync(path.join(root, "theme.js")), true);
   assert.equal(fs.existsSync(path.join(root, "update.html")), true);
   assert.equal(fs.existsSync(path.join(root, "extension-updates.js")), true);
 });

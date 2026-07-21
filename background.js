@@ -38,7 +38,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "pageEventStates", "dtmEventState", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
     "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState",
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState", "settingsSchemaVersion",
-    "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted", "extensionUpdateState",
+    "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "interfaceMode", "themeMode", "onboardingCompleted", "extensionUpdateState",
     "trackExtensionUpdates"
   ]);
   const updates = {};
@@ -83,7 +83,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (!Number.isFinite(Number(current.notificationsSnoozedUntil))) updates.notificationsSnoozedUntil = 0;
   updates.healthState = normalizeHealthState(current.healthState);
   if (!Array.isArray(current.shiftCrewAlertEnabledHalls)) updates.shiftCrewAlertEnabledHalls = [];
+  updates.simpleShiftCrewHalls = normalizeSimpleShiftCrewHalls(current.simpleShiftCrewHalls);
   updates.interfaceMode = normalizeInterfaceMode(current.interfaceMode);
+  updates.themeMode = normalizeThemeMode(current.themeMode);
   updates.extensionUpdateState = normalizeExtensionUpdateState(
     current.extensionUpdateState,
     chrome.runtime.getManifest().version
@@ -245,7 +247,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function ensureMonitorSettings() {
   const state = await chrome.storage.local.get([
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState",
-    "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted",
+    "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "interfaceMode", "themeMode", "onboardingCompleted",
     "trackExtensionUpdates"
   ]);
   await chrome.storage.local.set({
@@ -258,7 +260,9 @@ async function ensureMonitorSettings() {
     shiftCrewAlertEnabledHalls: Array.isArray(state.shiftCrewAlertEnabledHalls)
       ? state.shiftCrewAlertEnabledHalls.filter((hall) => SHIFT_CREW_HALLS.includes(hall))
       : [],
+    simpleShiftCrewHalls: normalizeSimpleShiftCrewHalls(state.simpleShiftCrewHalls),
     interfaceMode: normalizeInterfaceMode(state.interfaceMode),
+    themeMode: normalizeThemeMode(state.themeMode),
     onboardingCompleted: typeof state.onboardingCompleted === "boolean" ? state.onboardingCompleted : true,
     trackExtensionUpdates: typeof state.trackExtensionUpdates === "boolean" ? state.trackExtensionUpdates : true,
     settingsSchemaVersion: MONITOR_SETTINGS_SCHEMA_VERSION
