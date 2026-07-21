@@ -1,8 +1,11 @@
 importScripts("monitor-policy.js", "health.js", "jlab-parsers.js", "extension-updates.js", "email.js", "shift-crew.js");
 
 const CHECK_ALARM = "jlab-comment-check";
+const DTM_CHECK_ALARM = "jlab-dtm-check";
 const DEFAULT_CHECK_INTERVAL_MINUTES = 5;
 const CHECK_INTERVAL_OPTIONS = [5, 10, 15, 30, 60];
+const DEFAULT_DTM_CHECK_INTERVAL_MINUTES = 5;
+const DTM_CHECK_INTERVAL_OPTIONS = [1, 5, 10, 15, 30, 60];
 const DEFAULT_ENTRY_LIMIT = 100;
 const MAX_ENTRY_LIMIT = 1000;
 const DEFAULT_RANGE_TYPE = "entries";
@@ -31,11 +34,11 @@ const COMMENT_RECOVERY_INTERVAL_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   const current = await chrome.storage.local.get([
-    "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "entryLimit", "commentCounts", "watchedAuthors",
-    "pageEventStates", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
+    "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "dtmIntervalMinutes", "entryLimit", "commentCounts", "watchedAuthors",
+    "pageEventStates", "dtmEventState", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",
     "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState",
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState", "settingsSchemaVersion",
-    "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted", "extensionUpdateState",
+    "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "interfaceMode", "themeMode", "onboardingCompleted", "extensionUpdateState",
     "trackExtensionUpdates"
   ]);
   const updates = {};
@@ -47,9 +50,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (!CHECK_INTERVAL_OPTIONS.includes(Number(current.intervalMinutes))) {
     updates.intervalMinutes = DEFAULT_CHECK_INTERVAL_MINUTES;
   }
+  if (!DTM_CHECK_INTERVAL_OPTIONS.includes(Number(current.dtmIntervalMinutes))) {
+    updates.dtmIntervalMinutes = DEFAULT_DTM_CHECK_INTERVAL_MINUTES;
+  }
   if (!current.commentCounts) updates.commentCounts = {};
   if (!Array.isArray(current.watchedAuthors)) updates.watchedAuthors = [];
   if (!current.pageEventStates) updates.pageEventStates = {};
+  if (!current.dtmEventState) updates.dtmEventState = migrateDtmEventState(current.pageEventStates);
   if (!Number.isFinite(Number(current.commentCursor))) updates.commentCursor = COMMENT_CURSOR_SEED;
   if (typeof current.repeatDtmAlerts !== "boolean") updates.repeatDtmAlerts = false;
   if (!Array.isArray(current.shiftSummaryEditEnabledBooks)) {
@@ -76,7 +83,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (!Number.isFinite(Number(current.notificationsSnoozedUntil))) updates.notificationsSnoozedUntil = 0;
   updates.healthState = normalizeHealthState(current.healthState);
   if (!Array.isArray(current.shiftCrewAlertEnabledHalls)) updates.shiftCrewAlertEnabledHalls = [];
+  updates.simpleShiftCrewHalls = normalizeSimpleShiftCrewHalls(current.simpleShiftCrewHalls);
   updates.interfaceMode = normalizeInterfaceMode(current.interfaceMode);
+  updates.themeMode = normalizeThemeMode(current.themeMode);
   updates.extensionUpdateState = normalizeExtensionUpdateState(
     current.extensionUpdateState,
     chrome.runtime.getManifest().version
@@ -88,11 +97,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   updates.settingsSchemaVersion = MONITOR_SETTINGS_SCHEMA_VERSION;
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
   await ensureMonitorSettings();
-  await Promise.all([syncAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
+  await Promise.all([syncAlarm(), syncDtmAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
   await Promise.all([
     checkForComments(),
+    checkDtmEvents(),
     checkShiftCrewSchedulesIfDue(true),
     checkExtensionUpdateIfEnabled()
   ]);
@@ -100,12 +110,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureMonitorSettings();
-  await Promise.all([syncAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
+  await Promise.all([syncAlarm(), syncDtmAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
   const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
   await updateAlertBadge(pendingAlerts);
   const { enabled = true } = await chrome.storage.local.get("enabled");
   await Promise.all([
     enabled ? checkForComments() : Promise.resolve(),
+    enabled ? checkDtmEvents() : Promise.resolve(),
     checkShiftCrewSchedulesIfDue(),
     checkExtensionUpdateIfEnabled()
   ]);
@@ -113,6 +124,7 @@ chrome.runtime.onStartup.addListener(async () => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === CHECK_ALARM) checkForComments();
+  if (alarm.name === DTM_CHECK_ALARM) checkDtmEvents();
   if (alarm.name === SHIFT_CREW_ALARM) checkShiftCrewSchedules();
   if (alarm.name === EXTENSION_UPDATE_ALARM) checkExtensionUpdateIfEnabled();
 });
@@ -120,6 +132,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabled || changes.intervalMinutes || changes.enabledBooks || changes.monitoredBooks) syncAlarm();
+  if (changes.enabled || changes.dtmIntervalMinutes) syncDtmAlarm();
   if (changes.shiftCrewSchedules) syncShiftCrewAlarm();
   if (changes.trackExtensionUpdates && typeof changes.trackExtensionUpdates.oldValue === "boolean") {
     syncExtensionUpdateAlarm();
@@ -131,7 +144,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "check-now") {
-    Promise.all([checkForComments(), checkShiftCrewSchedules(), checkExtensionUpdateIfEnabled()])
+    Promise.all([checkForComments(), checkDtmEvents(), checkShiftCrewSchedules(), checkExtensionUpdateIfEnabled()])
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -185,7 +198,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "settings-restored") {
     ensureMonitorSettings()
       .then(() => Promise.all([
-        syncAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm(), updateAlertBadge({}),
+        syncAlarm(), syncDtmAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm(), updateAlertBadge({}),
         checkShiftCrewSchedulesIfDue(true), checkExtensionUpdateIfEnabled()
       ]))
       .then(() => sendResponse({ ok: true }))
@@ -234,7 +247,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function ensureMonitorSettings() {
   const state = await chrome.storage.local.get([
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState",
-    "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "interfaceMode", "onboardingCompleted",
+    "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "interfaceMode", "themeMode", "onboardingCompleted",
     "trackExtensionUpdates"
   ]);
   await chrome.storage.local.set({
@@ -247,7 +260,9 @@ async function ensureMonitorSettings() {
     shiftCrewAlertEnabledHalls: Array.isArray(state.shiftCrewAlertEnabledHalls)
       ? state.shiftCrewAlertEnabledHalls.filter((hall) => SHIFT_CREW_HALLS.includes(hall))
       : [],
+    simpleShiftCrewHalls: normalizeSimpleShiftCrewHalls(state.simpleShiftCrewHalls),
     interfaceMode: normalizeInterfaceMode(state.interfaceMode),
+    themeMode: normalizeThemeMode(state.themeMode),
     onboardingCompleted: typeof state.onboardingCompleted === "boolean" ? state.onboardingCompleted : true,
     trackExtensionUpdates: typeof state.trackExtensionUpdates === "boolean" ? state.trackExtensionUpdates : true,
     settingsSchemaVersion: MONITOR_SETTINGS_SCHEMA_VERSION
@@ -295,6 +310,27 @@ async function syncAlarm() {
       periodInMinutes: interval
     });
   }
+}
+
+async function syncDtmAlarm() {
+  const { enabled = true, dtmIntervalMinutes = DEFAULT_DTM_CHECK_INTERVAL_MINUTES } = await chrome.storage.local.get([
+    "enabled", "dtmIntervalMinutes"
+  ]);
+  const interval = DTM_CHECK_INTERVAL_OPTIONS.includes(Number(dtmIntervalMinutes))
+    ? Number(dtmIntervalMinutes)
+    : DEFAULT_DTM_CHECK_INTERVAL_MINUTES;
+  await chrome.alarms.clear(DTM_CHECK_ALARM);
+  if (enabled) {
+    await chrome.alarms.create(DTM_CHECK_ALARM, {
+      delayInMinutes: interval,
+      periodInMinutes: interval
+    });
+  }
+}
+
+function migrateDtmEventState(pageEventStates) {
+  const states = Object.values(pageEventStates && typeof pageEventStates === "object" ? pageEventStates : {});
+  return states.find((event) => event?.status === "open") || states.find((event) => event?.status === "closed") || null;
 }
 
 async function syncExtensionUpdateAlarm() {
@@ -518,7 +554,6 @@ async function checkForComments() {
     commentCounts = {},
     initialized = false,
     watchedAuthors = [],
-    pageEventStates = {},
     renderedCommentCounts = {},
     renderedCommentsInitialized = false,
     seenCommentIds = {},
@@ -527,14 +562,13 @@ async function checkForComments() {
     commentCursorInitialized = false,
     commentRecoveryInitialized = false,
     lastCommentRecoveryScan = 0,
-    repeatDtmAlerts = false,
     shiftSummaryEditEnabledBooks,
     shiftSummaryFingerprints = {}
   } = await chrome.storage.local.get([
-    "enabled", "monitoredBooks", "enabledBooks", "commentCounts", "initialized", "watchedAuthors", "pageEventStates",
+    "enabled", "monitoredBooks", "enabledBooks", "commentCounts", "initialized", "watchedAuthors",
     "renderedCommentCounts", "renderedCommentsInitialized", "seenCommentIds", "commentIdsInitialized",
     "commentCursor", "commentCursorInitialized", "commentRecoveryInitialized", "lastCommentRecoveryScan",
-    "repeatDtmAlerts", "shiftSummaryEditEnabledBooks", "shiftSummaryFingerprints"
+    "shiftSummaryEditEnabledBooks", "shiftSummaryFingerprints"
   ]);
   if (!enabled) return;
   const books = normalizeMonitoredBooks(monitoredBooks);
@@ -547,7 +581,6 @@ async function checkForComments() {
   await chrome.storage.local.set({ checking: true, lastError: "" });
   await recordSourceHealth("logbooks", { status: "checking", lastAttempt: Date.now(), error: "" });
   await recordSourceHealth("comments", { status: "checking", lastAttempt: Date.now(), error: "" });
-  await recordSourceHealth("dtm", { status: "checking", lastAttempt: Date.now(), error: "" });
 
   if (!activeBooks.length) {
     await chrome.storage.local.set({
@@ -564,16 +597,11 @@ async function checkForComments() {
     });
     await recordSourceHealth("logbooks", { status: "idle", lastAttempt: Date.now(), error: "", checked: 0, detail: "No logbooks enabled" });
     await recordSourceHealth("comments", { status: "idle", lastAttempt: Date.now(), error: "", checked: 0, detail: "No logbooks enabled" });
-    await recordSourceHealth("dtm", { status: "idle", lastAttempt: Date.now(), error: "", checked: 0, detail: "No logbooks enabled" });
     return;
   }
 
   try {
-    const [results, dtmEvent] = await Promise.all([
-      Promise.all(activeBooks.map((book) => fetchBook(book))),
-      fetchDtmEvent()
-    ]);
-    const pageEvents = activeBooks.map((book) => ({ ...dtmEvent, book: book.name, bookSlug: book.slug }));
+    const results = await Promise.all(activeBooks.map((book) => fetchBook(book)));
     const entries = results.flat();
     const shiftSummaryEntriesByBook = Object.fromEntries(
       results.map((bookEntries, index) => [
@@ -604,10 +632,8 @@ async function checkForComments() {
     );
     const nextRenderedCommentCounts = { ...renderedCommentCounts };
     const nextSeenCommentIds = { ...seenCommentIds };
-    const nextPageEventStates = { ...pageEventStates };
     const commentAlerts = [];
     const watchedNameAlerts = [];
-    const eventAlerts = [];
     const watchedNameSet = new Set(watchedAuthors.map(normalizeAuthor).filter(Boolean));
     const baselineBooks = new Set(
       Object.keys(commentCounts).map((key) => key.split(":", 1)[0])
@@ -626,17 +652,6 @@ async function checkForComments() {
     }
 
     const entryMetadata = new Map(entries.map((entry) => [`${entry.bookSlug}:${entry.lognumber}`, entry]));
-    for (const pageResult of pageEvents) {
-      for (const comment of Object.values(pageResult.commentRecords || {})) {
-        nextSeenCommentIds[`${pageResult.bookSlug}:${comment.commentId}`] = true;
-      }
-      for (const comment of Object.values(pageResult.comments || {})) {
-        const key = `${pageResult.bookSlug}:${comment.lognumber}`;
-        const current = Number(comment.count || 0);
-        nextRenderedCommentCounts[key] = current;
-      }
-    }
-
     const [commentScan, shiftEditResult] = await Promise.all([
       scanNewComments(
         Number(commentCursor) || COMMENT_CURSOR_SEED,
@@ -656,42 +671,6 @@ async function checkForComments() {
     commentAlerts.push(...combineCommentAlerts(commentScan.alerts));
     const shiftEditAlerts = shiftEditResult.alerts;
 
-    const queuedEventChanges = new Set();
-    for (const currentEvent of pageEvents) {
-      const previousEvent = pageEventStates[currentEvent.bookSlug] || pageEventStates[currentEvent.book];
-      if (currentEvent.status === "open") {
-        const changeKey = `found:${currentEvent.identity}`;
-        const eventChanged = !previousEvent
-          || previousEvent.status !== "open"
-          || previousEvent.identity !== currentEvent.identity
-          || previousEvent.title !== currentEvent.title;
-        if ((repeatDtmAlerts || eventChanged) && !queuedEventChanges.has(changeKey)) {
-          const eventChange = !previousEvent || previousEvent.status !== "open"
-            ? "opened"
-            : previousEvent.identity !== currentEvent.identity || previousEvent.title !== currentEvent.title
-              ? "changed"
-              : "reminder";
-          eventAlerts.push({
-            ...currentEvent,
-            eventState: "found",
-            eventChange,
-            priority: eventChange === "reminder" ? "informational" : "urgent"
-          });
-          queuedEventChanges.add(changeKey);
-        }
-        nextPageEventStates[currentEvent.bookSlug] = currentEvent;
-      } else if (currentEvent.status === "closed") {
-        if (previousEvent?.status === "open") {
-          const changeKey = `closed:${previousEvent.identity}`;
-          if (!queuedEventChanges.has(changeKey)) {
-            eventAlerts.push({ ...previousEvent, eventState: "closed", eventChange: "closed", priority: "important" });
-            queuedEventChanges.add(changeKey);
-          }
-        }
-        nextPageEventStates[currentEvent.bookSlug] = currentEvent;
-      }
-    }
-
     await chrome.storage.local.set({
       commentCounts: nextCounts,
       renderedCommentCounts: nextRenderedCommentCounts,
@@ -703,7 +682,6 @@ async function checkForComments() {
       commentRecoveryInitialized: commentRecoveryInitialized || recoveryDue,
       lastCommentRecoveryScan: recoveryDue ? Date.now() : Number(lastCommentRecoveryScan || 0),
       commentScanDiagnostic: commentScan.diagnostic,
-      pageEventStates: nextPageEventStates,
       initialized: true,
       checking: false,
       lastCheck: Date.now(),
@@ -714,15 +692,14 @@ async function checkForComments() {
       shiftSummariesByBook,
       shiftSummaryFingerprints: shiftEditResult.fingerprints,
       shiftSummaryEditError: shiftEditResult.errors.join(" "),
-      lastDetectedEvents: commentAlerts.length + watchedNameAlerts.length + shiftEditAlerts.length + eventAlerts.length,
+      lastDetectedEvents: commentAlerts.length + watchedNameAlerts.length + shiftEditAlerts.length,
       bookDiagnostics: Object.fromEntries(results.map((bookEntries, index) => {
         const newest = [...bookEntries].sort((a, b) => Number(b.lognumber) - Number(a.lognumber))[0];
         return [activeBooks[index].slug, {
           entries: bookEntries.length,
           newestLognumber: newest?.lognumber || null,
           newestTitle: newest ? cleanTitle(newest.title) : "No entries returned",
-          newestAuthor: newest ? displayAuthor(newest.author) : "",
-          pageEvent: pageEvents[index]
+          newestAuthor: newest ? displayAuthor(newest.author) : ""
         }];
       }))
     });
@@ -742,25 +719,91 @@ async function checkForComments() {
       checked: commentScan.checked,
       detail: commentScan.diagnostic
     });
-    await recordSourceHealth("dtm", {
-      status: "ok",
-      lastSuccess: completedAt,
-      error: "",
-      checked: 1,
-      detail: dtmEvent.diagnostic || dtmEvent.title || "DTM checked"
-    });
-
     for (const entry of commentAlerts) await showCommentNotification(entry);
     for (const entry of watchedNameAlerts) await showWatchedNameNotification(entry);
     for (const entry of shiftEditAlerts) await showShiftSummaryEditNotification(entry);
-    for (const entry of eventAlerts) await showEventNotification(entry);
   } catch (error) {
     const message = friendlyError(error);
     await chrome.storage.local.set({ checking: false, lastCheck: Date.now(), lastError: message });
     const failedAt = Date.now();
     await recordSourceHealth("logbooks", { status: "error", lastAttempt: failedAt, error: message });
     await recordSourceHealth("comments", { status: "error", lastAttempt: failedAt, error: message });
-    await recordSourceHealth("dtm", { status: "error", lastAttempt: failedAt, error: message });
+    throw error;
+  }
+}
+
+async function checkDtmEvents() {
+  const {
+    enabled = true,
+    dtmEventState,
+    pageEventStates = {},
+    repeatDtmAlerts = false
+  } = await chrome.storage.local.get([
+    "enabled", "dtmEventState", "pageEventStates", "repeatDtmAlerts"
+  ]);
+  if (!enabled) return;
+
+  const attemptedAt = Date.now();
+  await chrome.storage.local.set({ dtmChecking: true, lastDtmError: "" });
+  await recordSourceHealth("dtm", { status: "checking", lastAttempt: attemptedAt, error: "" });
+
+  try {
+    const currentEvent = await fetchDtmEvent();
+    const previousEvent = dtmEventState || migrateDtmEventState(pageEventStates);
+    let alert = null;
+
+    if (currentEvent.status === "open") {
+      const eventChanged = !previousEvent
+        || previousEvent.status !== "open"
+        || previousEvent.identity !== currentEvent.identity
+        || previousEvent.title !== currentEvent.title;
+      if (eventChanged || repeatDtmAlerts) {
+        const eventChange = !previousEvent || previousEvent.status !== "open"
+          ? "opened"
+          : previousEvent.identity !== currentEvent.identity || previousEvent.title !== currentEvent.title
+            ? "changed"
+            : "reminder";
+        alert = {
+          ...currentEvent,
+          eventState: "found",
+          eventChange,
+          priority: eventChange === "reminder" ? "informational" : "urgent"
+        };
+      }
+    } else if (previousEvent?.status === "open") {
+      alert = {
+        ...previousEvent,
+        eventState: "closed",
+        eventChange: "closed",
+        priority: "important"
+      };
+    }
+
+    const completedAt = Date.now();
+    await chrome.storage.local.set({
+      dtmEventState: currentEvent,
+      dtmChecking: false,
+      lastDtmCheck: completedAt,
+      lastDtmError: "",
+      lastDetectedDtmEvents: alert ? 1 : 0
+    });
+    await recordSourceHealth("dtm", {
+      status: "ok",
+      lastSuccess: completedAt,
+      error: "",
+      checked: 1,
+      detail: currentEvent.diagnostic || currentEvent.title || "DTM checked"
+    });
+    if (alert) await showEventNotification(alert);
+  } catch (error) {
+    const message = friendlyError(error);
+    await chrome.storage.local.set({
+      dtmChecking: false,
+      lastDtmCheck: Date.now(),
+      lastDtmError: message,
+      lastDetectedDtmEvents: 0
+    });
+    await recordSourceHealth("dtm", { status: "error", lastAttempt: Date.now(), error: message });
     throw error;
   }
 }
@@ -1140,7 +1183,7 @@ async function showEventNotification(event) {
     priority: event.priority || (state === "reminder" ? "informational" : state === "closed" ? "important" : "urgent"),
     systemTitle: `DTM event ${state}`,
     message: event.detail || event.title || `Beam-down event ${state}`,
-    url: event.url || `https://logbooks.jlab.org/book/${event.bookSlug || event.book.toLocaleLowerCase()}`
+    url: event.url || "https://ace.jlab.org/dtm/open-events"
   });
 }
 

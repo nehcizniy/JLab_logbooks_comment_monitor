@@ -10,10 +10,10 @@ mkdir -p "$DIST"
 rm -f "$ARCHIVE" "$ARCHIVE.sha256"
 cd "$ROOT"
 zip -q "$ARCHIVE" \
-  manifest.json background.js popup.html popup.css popup.js \
+  manifest.json background.js popup.html popup.css popup.js theme.js \
   update.html update.css update.js extension-updates.js \
   monitor-policy.js health.js jlab-parsers.js email.js shift-crew.js \
-  icon.png icon.svg README.md CHANGELOG.md
+  icon.png icon.svg README.md INSTALL.md CHANGELOG.md
 
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$DIST" && sha256sum "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256")

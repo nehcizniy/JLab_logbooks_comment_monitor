@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JLab Comment Monitor</title>
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body data-interface-mode="simple" data-active-popup-view="overview">
@@ -22,30 +23,31 @@
       </label>
     </header>
 
-    <section class="interface-mode-control" aria-label="Interface mode">
-      <div class="interface-mode-copy">
+    <details id="interface-mode-details" class="interface-mode-control">
+      <summary class="interface-mode-summary">
         <strong>Interface</strong>
+        <button id="dark-mode" class="dark-mode-button" type="button" aria-pressed="false" aria-label="Turn dark mode on">Dark mode</button>
+      </summary>
+      <div class="interface-mode-body">
         <span id="interface-mode-description">Simple keeps the most-used controls on one page.</span>
+        <div class="interface-mode-buttons">
+          <button type="button" data-interface-mode-button="simple" aria-pressed="true">Simple</button>
+          <button type="button" data-interface-mode-button="large" aria-pressed="false">Large simple</button>
+          <button type="button" data-interface-mode-button="advanced" aria-pressed="false">Advanced</button>
+          <button type="button" data-interface-mode-button="large-advanced" aria-pressed="false">Large advanced</button>
+        </div>
       </div>
-      <div class="interface-mode-buttons">
-        <button type="button" data-interface-mode-button="simple" aria-pressed="true">Simple</button>
-        <button type="button" data-interface-mode-button="advanced" aria-pressed="false">Advanced</button>
-      </div>
-    </section>
-
-    <section id="advanced-settings-banner" class="advanced-settings-banner" hidden>
-      <span id="advanced-settings-summary"></span>
-      <button id="switch-to-advanced" type="button">Switch to Advanced</button>
-    </section>
+    </details>
 
     <section id="help-panel" class="help-panel" aria-label="Quick help" hidden>
       <strong>Quick help</strong>
       <ul>
         <li>Use the top switch to start or pause automatic checks.</li>
-        <li>Switch between Simple and Advanced at any time. Your settings and alarm history are preserved.</li>
+        <li>Switch between Simple, Large simple, Advanced, and Large advanced at any time. Your settings and alarm history are preserved.</li>
+        <li>Open Interface to choose a layout. Its theme button remains available while Interface is folded and shows the mode you can switch to.</li>
         <li>Use Check now for an immediate scan, New entry to open JLab's entry form, or Logbooks to open the main site.</li>
         <li>Open Recent alarms to review and reopen the latest alerts.</li>
-        <li>Open Extension updates to check for a new release, update safely, or return to an earlier version.</li>
+        <li>Use Settings for update controls, monitoring preferences, watched names, and Test my setup.</li>
         <li>Use Monitoring health to review each source or copy privacy-safe diagnostics.</li>
         <li>Add public JLab schedule URLs under Shift Crew to see the current Hall A–D workers.</li>
         <li>Use Alerts to choose system/email delivery, quiet hours, or a temporary snooze.</li>
@@ -98,7 +100,7 @@
       </div>
     </details>
 
-    <details id="extension-update-details" class="extension-update-card" data-popup-view="overview">
+    <details id="extension-update-details" class="extension-update-card" data-popup-view="settings" data-simple-settings>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Extension updates</strong>
@@ -141,13 +143,17 @@
           <strong>Shift Crew</strong>
           <small>Hall A–D current workers · checked daily</small>
         </span>
+        <div class="shift-crew-tabs" role="group" aria-label="Halls shown in Simple mode">
+          <button type="button" data-shift-crew-tab="hallA" aria-controls="shift-crew-simple-list" aria-pressed="true">A</button>
+          <button type="button" data-shift-crew-tab="hallB" aria-controls="shift-crew-simple-list" aria-pressed="true">B</button>
+          <button type="button" data-shift-crew-tab="hallC" aria-controls="shift-crew-simple-list" aria-pressed="true">C</button>
+          <button type="button" data-shift-crew-tab="hallD" aria-controls="shift-crew-simple-list" aria-pressed="true">D</button>
+        </div>
         <aside class="shift-crew-hover-card">
           <strong>Current shift crew</strong>
           <small>JLab local time</small>
-          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-a">Hall A</a><span id="shift-crew-hover-hall-a"></span></div>
-          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-b">Hall B</a><span id="shift-crew-hover-hall-b"></span></div>
-          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-c">Hall C</a><span id="shift-crew-hover-hall-c"></span></div>
-          <div class="shift-crew-hover-row"><a id="shift-crew-hover-link-hall-d">Hall D</a><span id="shift-crew-hover-hall-d"></span></div>
+          <div id="shift-crew-simple-list" class="shift-crew-simple-list"></div>
+          <div class="shift-crew-hover-row shift-crew-advanced-preview"><a id="shift-crew-hover-link">Hall A</a><span id="shift-crew-hover-current"></span></div>
         </aside>
       </summary>
       <div class="shift-crew-body">
@@ -191,7 +197,7 @@
       <div id="shift-summary-list" class="shift-summary-list"></div>
     </details>
 
-    <section class="interval-control" data-popup-view="overview">
+    <section class="interval-control" data-popup-view="overview" data-simple-settings>
       <label for="interval">Automatic check interval</label>
       <select id="interval">
         <option value="5">Every 5 minutes</option>
@@ -206,7 +212,7 @@
       <div class="dtm-card-heading">
         <div>
           <strong id="dtm-card-title">DTM beam-down events</strong>
-          <span>Checked with each enabled logbook scan</span>
+          <span>Runs on its own schedule</span>
         </div>
         <button id="open-dtm" type="button">Open DTM</button>
       </div>
@@ -217,6 +223,17 @@
           <span id="dtm-status-detail">Event openings, changes, and closures will appear here.</span>
         </div>
       </div>
+      <section class="dtm-interval-control">
+        <label for="dtm-interval">DTM check interval</label>
+        <select id="dtm-interval">
+          <option value="1">Every 1 minute</option>
+          <option value="5">Every 5 minutes</option>
+          <option value="10">Every 10 minutes</option>
+          <option value="15">Every 15 minutes</option>
+          <option value="30">Every 30 minutes</option>
+          <option value="60">Every 60 minutes</option>
+        </select>
+      </section>
       <div class="dtm-behavior-note">
         <strong>Event-change notifications</strong>
         <span>Open, changed, and closed events follow your selected Alert level and delivery channels.</span>
@@ -233,7 +250,7 @@
       </section>
     </section>
 
-    <section class="alert-policy-card" data-popup-view="alerts" data-simple-visible>
+    <section class="alert-policy-card" data-popup-view="alerts" data-simple-visible data-simple-settings>
       <div class="alert-policy-heading">
         <strong>Alert level</strong>
         <span>Choose how much activity should actively notify people.</span>
@@ -258,7 +275,7 @@
       </div>
       <span id="alert-policy-status" class="alert-policy-status" aria-live="polite"></span>
       <div class="recommended-reset-row">
-        <button id="reset-recommended" type="button">Use recommended defaults</button>
+        <button id="reset-recommended" type="button">Use default</button>
         <span id="reset-recommended-status">5-minute checks, Standard alerts, no quiet hours. Personal lists and email setup are kept.</span>
       </div>
       <details class="alert-advanced">
@@ -330,7 +347,7 @@
       </div>
     </details>
 
-    <details class="book-controls" data-popup-view="overview" open>
+    <details class="book-controls" data-popup-view="overview" data-simple-settings open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Monitored logbooks</strong>
@@ -348,7 +365,7 @@
       </div>
     </details>
 
-    <details class="author-watch" data-popup-view="overview" open>
+    <details class="author-watch" data-popup-view="overview" data-simple-settings open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Notify for new entries by</strong>
@@ -368,7 +385,7 @@
       </div>
     </details>
 
-    <section class="setup-test-card" data-popup-view="settings" data-simple-visible>
+    <section class="setup-test-card" data-popup-view="settings" data-simple-visible data-simple-settings>
       <strong>Test my setup</strong>
       <span>Checks system notifications, JLab access, DTM, configured schedules, and email only when you configured it.</span>
       <button id="test-setup" type="button">Run setup test</button>

@@ -1,10 +1,10 @@
 {
   "name": "jlab-logbook-comment-monitor",
-  "version": "2.23.0",
+  "version": "3.0.0",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "check": "node --check background.js && node --check popup.js && node --check email.js && node --check shift-crew.js && node --check monitor-policy.js && node --check health.js && node --check jlab-parsers.js",
+    "check": "node --check background.js && node --check popup.js && node --check theme.js && node --check update.js && node --check extension-updates.js && node --check email.js && node --check shift-crew.js && node --check monitor-policy.js && node --check health.js && node --check jlab-parsers.js",
     "package": "sh scripts/package-extension.sh"
   }
 }

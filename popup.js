@@ -8,6 +8,7 @@ const helpButton = document.querySelector("#help-button");
 const helpPanel = document.querySelector("#help-panel");
 const openSetupGuideButton = document.querySelector("#open-setup-guide");
 const intervalInput = document.querySelector("#interval");
+const dtmIntervalInput = document.querySelector("#dtm-interval");
 const repeatDtmAlertsInput = document.querySelector("#repeat-dtm-alerts");
 const openDtmButton = document.querySelector("#open-dtm");
 const dtmStatusDot = document.querySelector("#dtm-status-dot");
@@ -52,9 +53,7 @@ const popupTabButtons = [...document.querySelectorAll("[data-popup-tab]")];
 const popupViewElements = [...document.querySelectorAll("[data-popup-view]")];
 const interfaceModeButtons = [...document.querySelectorAll("[data-interface-mode-button]")];
 const interfaceModeDescription = document.querySelector("#interface-mode-description");
-const advancedSettingsBanner = document.querySelector("#advanced-settings-banner");
-const advancedSettingsSummary = document.querySelector("#advanced-settings-summary");
-const switchToAdvancedButton = document.querySelector("#switch-to-advanced");
+const darkModeInput = document.querySelector("#dark-mode");
 const healthList = document.querySelector("#health-list");
 const copyDiagnosticsButton = document.querySelector("#copy-diagnostics");
 const copyDiagnosticsStatus = document.querySelector("#copy-diagnostics-status");
@@ -76,6 +75,8 @@ const saveShiftCrewButton = document.querySelector("#save-shift-crew");
 const shiftCrewDetails = document.querySelector("#shift-crew-details");
 const shiftCrewStatus = document.querySelector("#shift-crew-status");
 const SHIFT_CREW_HALLS = ["hallA", "hallB", "hallC", "hallD"];
+const SHIFT_CREW_LABELS = { hallA: "Hall A", hallB: "Hall B", hallC: "Hall C", hallD: "Hall D" };
+const shiftCrewTabButtons = [...document.querySelectorAll("[data-shift-crew-tab]")];
 const SHIFT_CREW_INPUTS = {
   hallA: document.querySelector("#shift-crew-url-hall-a"),
   hallB: document.querySelector("#shift-crew-url-hall-b"),
@@ -94,18 +95,9 @@ const SHIFT_CREW_LINKS = {
   hallC: document.querySelector("#shift-crew-link-hall-c"),
   hallD: document.querySelector("#shift-crew-link-hall-d")
 };
-const SHIFT_CREW_HOVER = {
-  hallA: document.querySelector("#shift-crew-hover-hall-a"),
-  hallB: document.querySelector("#shift-crew-hover-hall-b"),
-  hallC: document.querySelector("#shift-crew-hover-hall-c"),
-  hallD: document.querySelector("#shift-crew-hover-hall-d")
-};
-const SHIFT_CREW_HOVER_LINKS = {
-  hallA: document.querySelector("#shift-crew-hover-link-hall-a"),
-  hallB: document.querySelector("#shift-crew-hover-link-hall-b"),
-  hallC: document.querySelector("#shift-crew-hover-link-hall-c"),
-  hallD: document.querySelector("#shift-crew-hover-link-hall-d")
-};
+const shiftCrewSimpleList = document.querySelector("#shift-crew-simple-list");
+const shiftCrewHoverCurrent = document.querySelector("#shift-crew-hover-current");
+const shiftCrewHoverLink = document.querySelector("#shift-crew-hover-link");
 const SHIFT_CREW_ALERT_INPUTS = {
   hallA: document.querySelector("#shift-crew-alert-hall-a"),
   hallB: document.querySelector("#shift-crew-alert-hall-b"),
@@ -141,11 +133,13 @@ let authorsLoaded = false;
 let recentAlarmLimit = 5;
 let emailConfigLoaded = false;
 let shiftCrewConfigLoaded = false;
+let previewShiftCrewHall = "hallA";
+let lastShiftCrewRenderState = null;
 let currentInterfaceMode = "simple";
 let currentSetupWizardStep = 0;
 let currentExtensionUpdateDownloadUrl = "";
 const POPUP_VIEWS = ["overview", "dtm", "shifts", "alerts", "settings"];
-const SIMPLE_POPUP_VIEWS = ["overview", "dtm"];
+const SIMPLE_POPUP_VIEWS = ["overview", "dtm", "settings"];
 let activePopupView = POPUP_VIEWS.includes(localStorage.getItem("jlab-popup-view"))
   ? localStorage.getItem("jlab-popup-view")
   : "overview";
@@ -155,7 +149,7 @@ const SETTINGS_BACKUP_VERSION = 1;
 const NEW_LOGBOOK_ENTRY_URL = "https://logbooks.jlab.org/node/add/logentry";
 const LOGBOOKS_HOME_URL = "https://logbooks.jlab.org/";
 const TRANSIENT_STORAGE_KEYS = new Set([
-  "checking", "lastError", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
+  "checking", "lastError", "dtmChecking", "lastDtmError", "lastDtmCheck", "lastDetectedDtmEvents", "shiftSummaryEditError", "pendingAlerts", "emailAuth",
   "lastEmailError", "lastEmailAttempt", "lastEmailSentAt", "shiftCrewState",
   "shiftCrewChecking", "shiftCrewError", "lastShiftCrewCheck", "healthState",
   "lastSuccessfulCheck", "lastCommentRecoveryScan", "notificationsSnoozedUntil",
@@ -176,7 +170,13 @@ for (const button of popupTabButtons) {
 for (const button of interfaceModeButtons) {
   button.addEventListener("click", () => setInterfaceMode(button.dataset.interfaceModeButton));
 }
-switchToAdvancedButton.addEventListener("click", () => setInterfaceMode("advanced"));
+darkModeInput.addEventListener("click", async (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const darkModeEnabled = darkModeInput.getAttribute("aria-pressed") !== "true";
+  renderThemeButton(darkModeEnabled);
+  await chrome.storage.local.set({ themeMode: darkModeEnabled ? "dark" : "light" });
+});
 
 checkExtensionUpdateButton.addEventListener("click", checkExtensionUpdateFromPopup);
 trackExtensionUpdatesInput.addEventListener("change", async () => {
@@ -257,6 +257,11 @@ intervalInput.addEventListener("change", async () => {
   await render();
 });
 
+dtmIntervalInput.addEventListener("change", async () => {
+  await chrome.storage.local.set({ dtmIntervalMinutes: Number(dtmIntervalInput.value) });
+  await render();
+});
+
 repeatDtmAlertsInput.addEventListener("change", async () => {
   await chrome.storage.local.set({ repeatDtmAlerts: repeatDtmAlertsInput.checked });
   await render();
@@ -282,9 +287,38 @@ for (const input of Object.values(SHIFT_CREW_INPUTS)) {
     if (!saveShiftCrewButton.disabled) saveShiftCrewSchedules();
   });
 }
-for (const link of Object.values(SHIFT_CREW_HOVER_LINKS)) {
-  link.addEventListener("click", (event) => event.stopPropagation());
+for (const button of shiftCrewTabButtons) {
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const hall = button.dataset.shiftCrewTab;
+    const selectedHalls = new Set(normalizeSimpleShiftCrewHalls(lastShiftCrewRenderState?.simpleShiftCrewHalls));
+    if (selectedHalls.has(hall)) selectedHalls.delete(hall);
+    else selectedHalls.add(hall);
+    await chrome.storage.local.set({
+      simpleShiftCrewHalls: SHIFT_CREW_HALLS.filter((item) => selectedHalls.has(item))
+    });
+    await render();
+  });
+  button.addEventListener("mouseenter", () => previewShiftCrew(button.dataset.shiftCrewTab));
+  button.addEventListener("focus", () => previewShiftCrew(button.dataset.shiftCrewTab));
+  button.addEventListener("keydown", async (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const currentIndex = SHIFT_CREW_HALLS.indexOf(previewShiftCrewHall);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? SHIFT_CREW_HALLS.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + SHIFT_CREW_HALLS.length) % SHIFT_CREW_HALLS.length;
+    const nextButton = shiftCrewTabButtons.find((item) => item.dataset.shiftCrewTab === SHIFT_CREW_HALLS[nextIndex]);
+    previewShiftCrewHall = SHIFT_CREW_HALLS[nextIndex];
+    renderAdvancedShiftCrewPreview(lastShiftCrewRenderState);
+    nextButton?.focus();
+  });
 }
+shiftCrewHoverLink.addEventListener("click", (event) => event.stopPropagation());
 for (const input of Object.values(SHIFT_CREW_ALERT_INPUTS)) {
   input.addEventListener("change", async () => {
     const shiftCrewAlertEnabledHalls = SHIFT_CREW_HALLS.filter((hall) => SHIFT_CREW_ALERT_INPUTS[hall].checked);
@@ -426,6 +460,10 @@ function setActivePopupView(view) {
   }
 }
 
+function isFocusedInterfaceMode(value) {
+  return value === "simple" || value === "large";
+}
+
 async function openSetupWizard() {
   const state = await chrome.storage.local.get(["monitoredBooks", "enabledBooks", "intervalMinutes"]);
   const monitoredBooks = normalizeMonitoredBooks(state.monitoredBooks);
@@ -515,15 +553,16 @@ async function resetRecommendedSettings() {
   resetRecommendedButton.textContent = "Resetting…";
   await chrome.storage.local.set({
     intervalMinutes: 5,
+    dtmIntervalMinutes: 5,
     alertPreferences: alertPreferencesForPreset("standard"),
     repeatDtmAlerts: false,
     quietHours: normalizeQuietHours({ enabled: false }),
     notificationsSnoozedUntil: 0
   });
   await render();
-  resetRecommendedStatus.textContent = "Recommended defaults restored. Logbooks, names, schedules, email setup, and alarm history were kept.";
+  resetRecommendedStatus.textContent = "Default settings restored. Logbooks, names, schedules, email setup, and alarm history were kept.";
   resetRecommendedButton.disabled = false;
-  resetRecommendedButton.textContent = "Use recommended defaults";
+  resetRecommendedButton.textContent = "Use default";
 }
 
 async function setInterfaceMode(value) {
@@ -531,47 +570,33 @@ async function setInterfaceMode(value) {
   if (interfaceMode === currentInterfaceMode) return;
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
-  if (interfaceMode === "simple" && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
+  if (isFocusedInterfaceMode(interfaceMode) && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   await chrome.storage.local.set({ interfaceMode });
   await render();
 }
 
-function renderInterfaceMode(state, monitoredBooks) {
+function renderInterfaceMode(state) {
   const interfaceMode = normalizeInterfaceMode(state.interfaceMode);
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
-  if (interfaceMode === "simple" && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
+  if (isFocusedInterfaceMode(interfaceMode) && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   for (const button of interfaceModeButtons) {
     button.setAttribute("aria-pressed", String(button.dataset.interfaceModeButton === interfaceMode));
   }
   interfaceModeDescription.textContent = interfaceMode === "simple"
     ? "Simple keeps the most-used controls on one page."
-    : "Advanced shows every monitoring and delivery control.";
+    : interfaceMode === "large"
+      ? "Large simple keeps focused controls with bigger type and buttons."
+      : interfaceMode === "large-advanced"
+        ? "Large advanced shows every control with bigger type and buttons."
+        : "Advanced shows every monitoring and delivery control.";
 
-  const features = getActiveAdvancedFeatures(state, monitoredBooks);
-  advancedSettingsBanner.hidden = interfaceMode !== "simple" || !features.length;
-  advancedSettingsSummary.textContent = features.length
-    ? `Still active: ${features.slice(0, 3).join(", ")}${features.length > 3 ? ` and ${features.length - 3} more` : ""}.`
-    : "";
 }
 
-function getActiveAdvancedFeatures(state, monitoredBooks) {
-  const features = [];
-  const preferences = normalizeAlertPreferences(state.alertPreferences);
-  const alertPreset = detectAlertPreset(preferences);
-  if (alertPreset === "custom") features.push("custom alert channels");
-  if (normalizeQuietHours(state.quietHours).enabled) features.push("quiet hours");
-  if (state.emailConfig?.enabled === true) features.push("email alerts");
-  if ((state.shiftCrewAlertEnabledHalls || []).length) features.push("Shift Crew change alerts");
-  if (monitoredBooks.some((book) => book.rangeType !== "entries" || Number(book.rangeValue) !== 100)) {
-    features.push("custom logbook ranges");
-  }
-  const hasStoredShiftEditChoices = Array.isArray(state.shiftSummaryEditEnabledBooks);
-  const shiftEditBooks = new Set(hasStoredShiftEditChoices ? state.shiftSummaryEditEnabledBooks : []);
-  if (hasStoredShiftEditChoices && monitoredBooks.some((book) => !shiftEditBooks.has(book.slug))) {
-    features.push("custom shift-summary edit alerts");
-  }
-  return features;
+function renderThemeButton(darkModeEnabled) {
+  darkModeInput.setAttribute("aria-pressed", String(darkModeEnabled));
+  darkModeInput.setAttribute("aria-label", `Switch to ${darkModeEnabled ? "light" : "dark"} mode`);
+  darkModeInput.textContent = darkModeEnabled ? "Light mode" : "Dark mode";
 }
 
 function initializeAlertPolicyRows() {
@@ -651,18 +676,14 @@ function renderAlertPolicyControls(state) {
   }
 }
 
-function renderDtmControls(state, enabled, activeBooks) {
+function renderDtmControls(state, enabled) {
   const health = normalizeHealthState(state.healthState).dtm;
   dtmStatusDot.className = "dot";
   if (!enabled) {
     dtmStatus.textContent = "DTM monitoring is paused";
     dtmStatusDetail.textContent = "Turn on the main monitor switch to resume DTM checks.";
     dtmStatusDot.classList.add("off");
-  } else if (!activeBooks.length) {
-    dtmStatus.textContent = "DTM is waiting for a logbook";
-    dtmStatusDetail.textContent = "Enable at least one logbook to include DTM in automatic checks.";
-    dtmStatusDot.classList.add("off");
-  } else if (state.checking || health.status === "checking") {
+  } else if (state.dtmChecking || health.status === "checking") {
     dtmStatus.textContent = "Checking DTM events…";
     dtmStatusDetail.textContent = "Reading the live JLab DTM open-events page.";
     dtmStatusDot.classList.add("working");
@@ -684,15 +705,19 @@ function renderDtmControls(state, enabled, activeBooks) {
 async function renderHealthDashboard(state, _intervalMinutes) {
   healthList.replaceChildren();
   const health = normalizeHealthState(state.healthState);
-  const [monitorAlarm, shiftCrewAlarm] = await Promise.all([
+  const [monitorAlarm, dtmAlarm, shiftCrewAlarm] = await Promise.all([
     chrome.alarms.get("jlab-comment-check"),
+    chrome.alarms.get("jlab-dtm-check"),
     chrome.alarms.get("jlab-shift-crew-daily")
   ]);
   const nextCheck = Number(monitorAlarm?.scheduledTime || 0);
+  const nextDtmCheck = Number(dtmAlarm?.scheduledTime || 0);
   const nextShiftCrewCheck = Number(shiftCrewAlarm?.scheduledTime || 0);
-  appendHealthRow("Schedule", nextCheck
-    ? `Next regular check ${formatHealthTime(nextCheck)} · Shift crew ${nextShiftCrewCheck ? formatHealthTime(nextShiftCrewCheck) : "not scheduled"} · Last successful ${formatHealthTime(state.lastSuccessfulCheck)}`
-    : "Waiting for the first successful check", state.lastError ? "error" : "ok");
+  appendHealthRow(
+    "Schedule",
+    `Logbooks ${nextCheck ? formatHealthTime(nextCheck) : "not scheduled"} · DTM ${nextDtmCheck ? formatHealthTime(nextDtmCheck) : "not scheduled"} · Shift crew ${nextShiftCrewCheck ? formatHealthTime(nextShiftCrewCheck) : "not scheduled"}`,
+    state.lastError || state.lastDtmError ? "error" : "ok"
+  );
   const labels = { logbooks: "Logbooks", comments: "Comments", dtm: "DTM", shiftCrew: "Shift crew", email: "Email" };
   for (const source of MONITOR_HEALTH_SOURCES) {
     const item = health[source];
@@ -872,13 +897,13 @@ function validateSettingsBackup(backup) {
 
 async function render() {
   const state = await chrome.storage.local.get([
-    "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "checking", "initialized", "lastCheck", "lastError", "trackedEntries", "watchedAuthors",
+    "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "dtmIntervalMinutes", "checking", "dtmChecking", "initialized", "lastCheck", "lastError", "lastDtmError", "trackedEntries", "watchedAuthors",
     "lastDetectedEvents", "bookDiagnostics", "commentCursor", "shiftSummariesByBook", "repeatDtmAlerts",
     "shiftSummaryEditEnabledBooks", "shiftSummaryEditError", "alertHistory", "emailConfig", "emailAuth",
     "lastEmailError", "lastEmailSentAt", "shiftCrewSchedules", "shiftCrewState", "shiftCrewChecking",
-    "shiftCrewError", "lastShiftCrewCheck", "shiftCrewAlertEnabledHalls", "alertPreferences", "quietHours",
+    "shiftCrewError", "lastShiftCrewCheck", "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "alertPreferences", "quietHours",
     "notificationsSnoozedUntil", "healthState", "lastSuccessfulCheck", "commentScanDiagnostic",
-    "lastCommentRecoveryScan", "interfaceMode", "onboardingCompleted", "extensionUpdateState",
+    "lastCommentRecoveryScan", "interfaceMode", "themeMode", "onboardingCompleted", "extensionUpdateState",
     "trackExtensionUpdates"
   ]);
   const enabled = state.enabled !== false;
@@ -891,9 +916,15 @@ async function render() {
   const intervalMinutes = [5, 10, 15, 30, 60].includes(Number(state.intervalMinutes))
     ? Number(state.intervalMinutes)
     : 5;
-  renderInterfaceMode(state, monitoredBooks);
+  const dtmIntervalMinutes = [1, 5, 10, 15, 30, 60].includes(Number(state.dtmIntervalMinutes))
+    ? Number(state.dtmIntervalMinutes)
+    : 5;
+  const darkModeEnabled = normalizeThemeMode(state.themeMode) === "dark";
+  renderThemeButton(darkModeEnabled);
+  renderInterfaceMode(state);
   enabledInput.checked = enabled;
   intervalInput.value = String(intervalMinutes);
+  dtmIntervalInput.value = String(dtmIntervalMinutes);
   repeatDtmAlertsInput.checked = state.repeatDtmAlerts === true;
   const shiftEditEnabledBookSlugs = normalizeEnabledSlugs(state.shiftSummaryEditEnabledBooks, monitoredBooks);
   renderBookControls(monitoredBooks, enabledBookSlugs);
@@ -909,7 +940,7 @@ async function render() {
   renderExtensionUpdate(state.extensionUpdateState, state.trackExtensionUpdates !== false);
   renderShiftCrewControls(state);
   renderAlertPolicyControls(state);
-  renderDtmControls(state, enabled, activeBooks);
+  renderDtmControls(state, enabled);
   await renderHealthDashboard(state, intervalMinutes);
   renderEmailControls(state);
   if (!authorsLoaded) {
@@ -927,27 +958,27 @@ async function render() {
     statusText.textContent = "Monitor is off";
     detailText.textContent = "No checks will run until you turn it on.";
     statusDot.classList.add("off");
-  } else if (!activeBooks.length) {
-    statusText.textContent = "No logbooks selected";
-    detailText.textContent = "Add or turn on a logbook to start automatic checks.";
-    statusDot.classList.add("off");
   } else if (state.checking) {
-    statusText.textContent = currentInterfaceMode === "simple" ? "Checking for updates…" : `Checking ${activeBookLabel}…`;
-    detailText.textContent = currentInterfaceMode === "simple"
-      ? "The monitor is checking logbooks, comments, and DTM events now."
-      : "Checking new comment permalinks, entries, and beam events.";
+    statusText.textContent = isFocusedInterfaceMode(currentInterfaceMode) ? "Checking for updates…" : `Checking ${activeBookLabel}…`;
+    detailText.textContent = isFocusedInterfaceMode(currentInterfaceMode)
+      ? "The monitor is checking logbooks and comments now."
+      : "Checking new comment permalinks and entries.";
     statusDot.classList.add("working");
   } else if (activeError) {
-    statusText.textContent = currentInterfaceMode === "simple" ? "Something needs attention" : `${activeError.label} needs attention`;
+    statusText.textContent = isFocusedInterfaceMode(currentInterfaceMode) ? "Something needs attention" : `${activeError.label} needs attention`;
     detailText.textContent = activeError.message;
     statusDot.classList.add("error");
+  } else if (!activeBooks.length) {
+    statusText.textContent = "DTM monitoring is active";
+    detailText.textContent = `No logbooks selected · DTM checks every ${dtmIntervalMinutes} ${dtmIntervalMinutes === 1 ? "minute" : "minutes"}.`;
+    statusDot.classList.add("on");
   } else if (!state.initialized) {
     statusText.textContent = "Ready to establish baseline";
     detailText.textContent = "The first successful check will not alert for existing comments.";
     statusDot.classList.add("working");
   } else {
     const checked = state.lastCheck ? new Date(state.lastCheck).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "not yet";
-    if (currentInterfaceMode === "simple") {
+    if (isFocusedInterfaceMode(currentInterfaceMode)) {
       statusText.textContent = "Everything is working";
       detailText.textContent = `Monitoring ${activeBookLabel} every ${intervalMinutes} minutes · Last checked ${checked}`;
     } else {
@@ -1009,6 +1040,7 @@ function renderEmailControls(state) {
   }
   disconnectEmailButton.disabled = !auth.provider;
   testEmailButton.disabled = !matchesSelectedProvider;
+
 }
 
 function renderEmailProviderSettings() {
@@ -1175,8 +1207,10 @@ async function saveShiftCrewSchedules() {
 }
 
 function renderShiftCrewControls(state) {
+  lastShiftCrewRenderState = state;
   const schedules = normalizeShiftCrewSchedulesForPopup(state.shiftCrewSchedules);
   const alertEnabledHalls = new Set(Array.isArray(state.shiftCrewAlertEnabledHalls) ? state.shiftCrewAlertEnabledHalls : []);
+  const simpleHalls = normalizeSimpleShiftCrewHalls(state.simpleShiftCrewHalls);
   if (!shiftCrewConfigLoaded) {
     for (const hall of SHIFT_CREW_HALLS) SHIFT_CREW_INPUTS[hall].value = schedules[hall];
     shiftCrewConfigLoaded = true;
@@ -1185,14 +1219,19 @@ function renderShiftCrewControls(state) {
   for (const hall of SHIFT_CREW_HALLS) {
     const display = formatCurrentShiftCrew(schedules[hall], state.shiftCrewState?.[hall]);
     configureShiftCrewLink(SHIFT_CREW_LINKS[hall], schedules[hall]);
-    configureShiftCrewLink(SHIFT_CREW_HOVER_LINKS[hall], schedules[hall]);
     SHIFT_CREW_CURRENT[hall].textContent = display.text;
     SHIFT_CREW_CURRENT[hall].title = display.title;
-    SHIFT_CREW_HOVER[hall].textContent = display.text;
-    SHIFT_CREW_HOVER[hall].title = display.title;
     SHIFT_CREW_ALERT_INPUTS[hall].checked = alertEnabledHalls.has(hall);
     SHIFT_CREW_ALERT_INPUTS[hall].disabled = !schedules[hall];
   }
+
+  for (const button of shiftCrewTabButtons) {
+    const selected = simpleHalls.includes(button.dataset.shiftCrewTab);
+    button.setAttribute("aria-pressed", String(selected));
+    button.title = `${selected ? "Remove" : "Add"} ${SHIFT_CREW_LABELS[button.dataset.shiftCrewTab]} ${selected ? "from" : "to"} the Simple-mode list`;
+  }
+  renderAdvancedShiftCrewPreview(state, schedules);
+  renderSimpleShiftCrewList(state, schedules, simpleHalls);
 
   const configuredCount = Object.values(schedules).filter(Boolean).length;
   shiftCrewStatus.className = state.shiftCrewError ? "shift-crew-status error" : "shift-crew-status";
@@ -1211,6 +1250,45 @@ function renderShiftCrewControls(state) {
     shiftCrewStatus.textContent = "URLs saved. Waiting for the first daily check.";
   } else {
     shiftCrewStatus.textContent = "No shift schedules configured.";
+  }
+}
+
+function previewShiftCrew(value) {
+  previewShiftCrewHall = SHIFT_CREW_HALLS.includes(value) ? value : "hallA";
+  renderAdvancedShiftCrewPreview(lastShiftCrewRenderState);
+}
+
+function renderAdvancedShiftCrewPreview(state, schedules = normalizeShiftCrewSchedulesForPopup(state?.shiftCrewSchedules)) {
+  const hall = SHIFT_CREW_HALLS.includes(previewShiftCrewHall) ? previewShiftCrewHall : "hallA";
+  const display = formatCurrentShiftCrew(schedules[hall], state?.shiftCrewState?.[hall]);
+  shiftCrewHoverLink.textContent = SHIFT_CREW_LABELS[hall];
+  configureShiftCrewLink(shiftCrewHoverLink, schedules[hall]);
+  shiftCrewHoverCurrent.textContent = display.text;
+  shiftCrewHoverCurrent.title = display.title;
+}
+
+function renderSimpleShiftCrewList(state, schedules, halls) {
+  shiftCrewSimpleList.replaceChildren();
+  if (!halls.length) {
+    const empty = document.createElement("span");
+    empty.className = "shift-crew-simple-empty";
+    empty.textContent = "No Halls selected. Use the A/B/C/D buttons in Advanced mode to add one.";
+    shiftCrewSimpleList.append(empty);
+    return;
+  }
+  for (const hall of halls) {
+    const display = formatCurrentShiftCrew(schedules[hall], state.shiftCrewState?.[hall]);
+    const row = document.createElement("div");
+    row.className = "shift-crew-hover-row";
+    const link = document.createElement("a");
+    link.textContent = SHIFT_CREW_LABELS[hall];
+    configureShiftCrewLink(link, schedules[hall]);
+    link.addEventListener("click", (event) => event.stopPropagation());
+    const detail = document.createElement("span");
+    detail.textContent = display.text;
+    detail.title = display.title;
+    row.append(link, detail);
+    shiftCrewSimpleList.append(row);
   }
 }
 
@@ -1628,13 +1706,9 @@ function renderDiagnostics(diagnostics, monitoredBooks, enabledBookSlugs) {
       bookDiagnostics.append(row);
       continue;
     }
-    const event = data.pageEvent;
-    const eventText = event?.status === "open"
-      ? `OPEN EVENT: ${event.title}`
-      : "No open event banner detected";
     value.textContent = data.newestLognumber
-      ? `Newest #${data.newestLognumber} · ${data.newestAuthor} · Comment monitoring active · ${eventText}`
-      : eventText;
+      ? `Newest #${data.newestLognumber} · ${data.newestAuthor} · Comment monitoring active`
+      : "No entries returned";
     row.append(name, value);
     bookDiagnostics.append(row);
   }
