@@ -23,28 +23,24 @@
       </label>
     </header>
 
-    <details id="interface-mode-details" class="interface-mode-control">
-      <summary class="interface-mode-summary">
-        <strong>Interface</strong>
-        <button id="dark-mode" class="dark-mode-button" type="button" aria-pressed="false" aria-label="Turn dark mode on">Dark mode</button>
-      </summary>
-      <div class="interface-mode-body">
-        <span id="interface-mode-description">Simple keeps the most-used controls on one page.</span>
-        <div class="interface-mode-buttons">
-          <button type="button" data-interface-mode-button="simple" aria-pressed="true">Simple</button>
-          <button type="button" data-interface-mode-button="large" aria-pressed="false">Large simple</button>
-          <button type="button" data-interface-mode-button="advanced" aria-pressed="false">Advanced</button>
-          <button type="button" data-interface-mode-button="large-advanced" aria-pressed="false">Large advanced</button>
-        </div>
-      </div>
-    </details>
+    <section id="interface-mode-control" class="interface-mode-control" aria-label="Interface and theme">
+      <strong class="interface-mode-label">Interface</strong>
+      <select id="interface-mode-select" class="interface-mode-select" aria-label="Interface mode">
+        <option value="simple">Simple</option>
+        <option value="large">Large simple</option>
+        <option value="advanced">Advanced</option>
+        <option value="large-advanced">Large advanced</option>
+      </select>
+      <button id="dark-mode" class="dark-mode-button" type="button" aria-pressed="false" aria-label="Turn dark mode on">Dark mode</button>
+    </section>
 
     <section id="help-panel" class="help-panel" aria-label="Quick help" hidden>
       <strong>Quick help</strong>
       <ul>
         <li>Use the top switch to start or pause automatic checks.</li>
         <li>Switch between Simple, Large simple, Advanced, and Large advanced at any time. Your settings and alarm history are preserved.</li>
-        <li>Open Interface to choose a layout. Its theme button remains available while Interface is folded and shows the mode you can switch to.</li>
+        <li>Use the Interface dropdown to choose a layout and the adjacent theme button to switch between light and dark colors.</li>
+        <li>Collapsible sections remember whether you left them open or closed.</li>
         <li>Use Check now for an immediate scan, New entry to open JLab's entry form, or Logbooks to open the main site.</li>
         <li>Open Recent alarms to review and reopen the latest alerts.</li>
         <li>Use Settings for update controls, monitoring preferences, watched names, and Test my setup.</li>
@@ -87,7 +83,7 @@
       <button type="button" data-popup-tab="settings" aria-pressed="false">Settings</button>
     </nav>
 
-    <details class="recent-alarms-card" data-popup-view="overview">
+    <details class="recent-alarms-card" data-popup-view="overview" data-collapse-key="recent-alarms">
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Recent alarms</strong>
@@ -100,7 +96,7 @@
       </div>
     </details>
 
-    <details id="extension-update-details" class="extension-update-card" data-popup-view="settings" data-simple-settings>
+    <details id="extension-update-details" class="extension-update-card" data-popup-view="settings" data-simple-settings data-collapse-key="extension-updates">
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Extension updates</strong>
@@ -123,7 +119,7 @@
       </div>
     </details>
 
-    <details class="health-card" data-popup-view="overview" data-simple-hide>
+    <details class="health-card" data-popup-view="overview" data-simple-hide data-collapse-key="monitoring-health">
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Monitoring health</strong>
@@ -137,7 +133,7 @@
       </div>
     </details>
 
-    <details id="shift-crew-details" class="shift-crew-card" data-popup-view="shifts" data-simple-visible>
+    <details id="shift-crew-details" class="shift-crew-card" data-popup-view="shifts" data-simple-visible data-collapse-key="shift-crew">
       <summary class="fold-summary shift-crew-summary">
         <span class="fold-summary-copy">
           <strong>Shift Crew</strong>
@@ -187,7 +183,7 @@
       </div>
     </details>
 
-    <details class="shift-summary-card" data-popup-view="shifts" data-simple-visible open>
+    <details class="shift-summary-card" data-popup-view="shifts" data-simple-visible data-collapse-key="shift-summaries">
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Shift summaries</strong>
@@ -278,7 +274,7 @@
         <button id="reset-recommended" type="button">Use default</button>
         <span id="reset-recommended-status">5-minute checks, Standard alerts, no quiet hours. Personal lists and email setup are kept.</span>
       </div>
-      <details class="alert-advanced">
+      <details class="alert-advanced" data-collapse-key="advanced-alert-controls">
         <summary class="fold-summary">
           <span class="fold-summary-copy"><strong>Advanced</strong><small>Individual channels and quiet hours</small></span>
         </summary>
@@ -295,7 +291,7 @@
       </details>
     </section>
 
-    <details class="email-controls" data-popup-view="alerts">
+    <details class="email-controls" data-popup-view="alerts" data-collapse-key="email-notifications">
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Email notifications (optional)</strong>
@@ -347,7 +343,7 @@
       </div>
     </details>
 
-    <details class="book-controls" data-popup-view="overview" data-simple-settings open>
+    <details class="book-controls" data-popup-view="overview" data-simple-settings data-collapse-key="monitored-logbooks" open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Monitored logbooks</strong>
@@ -365,7 +361,7 @@
       </div>
     </details>
 
-    <details class="author-watch" data-popup-view="overview" data-simple-settings open>
+    <details class="author-watch" data-popup-view="overview" data-simple-settings data-collapse-key="watched-names" open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Notify for new entries by</strong>
@@ -385,6 +381,14 @@
       </div>
     </details>
 
+    <section class="simple-logbook-shortcut" data-popup-view="overview" data-simple-only aria-labelledby="simple-logbook-shortcut-title">
+      <div class="simple-logbook-shortcut-heading">
+        <strong id="simple-logbook-shortcut-title">Open a logbook</strong>
+        <span>Click an enabled logbook</span>
+      </div>
+      <div id="simple-logbook-buttons" class="simple-logbook-buttons"></div>
+    </section>
+
     <section class="setup-test-card" data-popup-view="settings" data-simple-visible data-simple-settings>
       <strong>Test my setup</strong>
       <span>Checks system notifications, JLab access, DTM, configured schedules, and email only when you configured it.</span>
@@ -392,7 +396,7 @@
       <div id="setup-test-results" class="setup-test-results" aria-live="polite"></div>
     </section>
 
-    <details class="settings-backup" data-popup-view="settings" open>
+    <details class="settings-backup" data-popup-view="settings" data-collapse-key="settings-backup" open>
       <summary class="fold-summary">
         <span class="fold-summary-copy">
           <strong>Settings backup</strong>
@@ -413,7 +417,7 @@
 
     <p class="footnote" data-popup-view="settings">Version <span id="extension-version"></span> · Checks run without opening background tabs. A tab opens only when you choose to open an entry or logbook.</p>
 
-    <details class="individual-tests" data-popup-view="settings">
+    <details class="individual-tests" data-popup-view="settings" data-collapse-key="individual-tests">
       <summary class="fold-summary"><span class="fold-summary-copy"><strong>Individual tests</strong><small>Run a specific notification or comment preview</small></span></summary>
       <div class="actions" aria-label="Notification tests">
         <button id="test-notification">Test system notification</button>

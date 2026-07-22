@@ -40,5 +40,5 @@ If monitoring stops after an update or browser restart, open the extension, conf
 
 ## Update or uninstall
 
-- To update, extract the new ZIP over the existing extension folder, open `chrome://extensions`, and select the extension's **Reload** button. Export settings first if you want a backup.
+- To update, extract the new ZIP over the existing extension folder, open `chrome://extensions`, and select the extension's **Reload** button. The fixed extension ID preserves all locally stored settings and interface choices. Export settings first if you want an extra safety backup, and do not select **Remove** during an update.
 - To uninstall, open `chrome://extensions` and select **Remove**. You can then delete the extracted folder.

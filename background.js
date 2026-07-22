@@ -33,6 +33,8 @@ const MAX_ALERT_HISTORY = 20;
 const COMMENT_RECOVERY_INTERVAL_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 chrome.runtime.onInstalled.addListener(async (details) => {
+  // Updates must only add or migrate values. Never clear extension storage here:
+  // the fixed manifest key lets every existing setting survive a normal reload.
   const current = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes", "dtmIntervalMinutes", "entryLimit", "commentCounts", "watchedAuthors",
     "pageEventStates", "dtmEventState", "commentCursor", "repeatDtmAlerts", "notifyShiftSummaryEdits", "shiftSummaryEditEnabledBooks",

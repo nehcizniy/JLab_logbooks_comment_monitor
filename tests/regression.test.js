@@ -140,31 +140,42 @@ test("compares extension releases and selects the packaged ZIP", () => {
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "3.0.0");
+  assert.equal(manifest.version, "3.1.0");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
   const popupJs = fs.readFileSync(path.join(root, "popup.js"), "utf8");
   const backgroundJs = fs.readFileSync(path.join(root, "background.js"), "utf8");
+  const updateMigrationSource = backgroundJs.slice(
+    backgroundJs.indexOf("chrome.runtime.onInstalled.addListener"),
+    backgroundJs.indexOf("chrome.runtime.onStartup.addListener")
+  );
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
+  const detailTags = [...html.matchAll(/<details\b([^>]*)>/g)].map((match) => match[1]);
+  const collapseKeys = detailTags.map((attributes) => attributes.match(/data-collapse-key="([^"]+)"/)?.[1]);
   assert.equal(ids.length, new Set(ids).size);
+  assert.equal(detailTags.length > 0, true);
+  assert.equal(collapseKeys.every(Boolean), true);
+  assert.equal(collapseKeys.length, new Set(collapseKeys).size);
+  assert.doesNotMatch(html, /class="shift-summary-card"[^>]*\sopen(?:\s|>)/);
   for (const id of [
     "health-list", "alert-policy-list", "alert-preset", "shift-crew-details", "copy-diagnostics",
-    "test-setup", "interface-mode-description",
+    "test-setup", "interface-mode-control",
     "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide",
     "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
     "open-previous-versions", "dtm-status", "dtm-status-detail", "dtm-status-dot",
     "open-dtm", "dtm-interval", "repeat-dtm-alerts", "new-entry", "open-logbooks", "dark-mode",
-    "shift-crew-hover-link", "shift-crew-hover-current", "shift-crew-simple-list"
+    "shift-crew-hover-link", "shift-crew-hover-current", "shift-crew-simple-list",
+    "interface-mode-select", "simple-logbook-buttons"
   ]) {
     assert.equal(ids.includes(id), true, `missing #${id}`);
   }
   assert.doesNotMatch(html, /advanced-settings-banner|switch-to-advanced/);
   assert.match(html, /data-interface-mode="simple"/);
-  assert.match(html, /data-interface-mode-button="large"/);
-  assert.match(html, /data-interface-mode-button="advanced"/);
-  assert.match(html, /data-interface-mode-button="large-advanced"/);
-  assert.match(html, /<details id="interface-mode-details" class="interface-mode-control">/);
+  assert.doesNotMatch(html, /data-interface-mode-button/);
+  assert.match(html, /id="interface-mode-select"[\s\S]*value="simple"[\s\S]*value="large"[\s\S]*value="advanced"[\s\S]*value="large-advanced"/);
+  assert.match(html, /<section id="interface-mode-control" class="interface-mode-control"/);
+  assert.doesNotMatch(html, /interface-mode-details|interface-mode-summary|interface-mode-body/);
   assert.match(html, /<button id="dark-mode"[^>]+aria-pressed="false"[^>]*>Dark mode<\/button>/);
   assert.match(popupJs, /darkModeInput\.addEventListener\("click"/);
   assert.match(popupJs, /event\.stopPropagation\(\)/);
@@ -187,6 +198,17 @@ test("manifest and popup retain required extension structure", () => {
   assert.match(popupJs, /button\.addEventListener\("mouseenter", \(\) => previewShiftCrew/);
   assert.match(popupJs, /simpleShiftCrewHalls/);
   assert.match(popupJs, /function renderSimpleShiftCrewList\(/);
+  assert.match(html, /class="simple-logbook-shortcut"[^>]+data-simple-only/);
+  assert.match(popupJs, /function renderSimpleLogbookShortcut\(/);
+  assert.match(popupJs, /simpleLogbookButtons\.append\(button\)/);
+  assert.match(popupJs, /encodeURIComponent\(book\.slug\)/);
+  assert.match(popupJs, /async function initializePopupPreferences\(\)/);
+  assert.match(popupJs, /function initializeCollapsibleSections\(/);
+  assert.match(popupJs, /chrome\.storage\.local\.set\(\{ popupView: activePopupView \}\)/);
+  assert.match(popupJs, /chrome\.storage\.local\.set\(\{ collapsibleSectionStates:/);
+  assert.doesNotMatch(popupJs, /localStorage\.setItem/);
+  assert.match(popupJs, /chrome\.storage\.local\.get\(null\)/);
+  assert.doesNotMatch(updateMigrationSource, /chrome\.storage\.local\.(?:clear|remove)\(/);
   assert.match(popupJs, /https:\/\/logbooks\.jlab\.org\/node\/add\/logentry/);
   assert.match(popupJs, /LOGBOOKS_HOME_URL = "https:\/\/logbooks\.jlab\.org\/"/);
   assert.match(backgroundJs, /const DTM_CHECK_ALARM = "jlab-dtm-check"/);

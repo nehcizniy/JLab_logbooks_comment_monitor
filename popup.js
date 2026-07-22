@@ -18,6 +18,7 @@ const bookUrlInput = document.querySelector("#book-url");
 const addBookButton = document.querySelector("#add-book");
 const bookAddStatus = document.querySelector("#book-add-status");
 const bookControlList = document.querySelector("#book-control-list");
+const simpleLogbookButtons = document.querySelector("#simple-logbook-buttons");
 const shiftSummaryList = document.querySelector("#shift-summary-list");
 const statusText = document.querySelector("#status");
 const detailText = document.querySelector("#detail");
@@ -51,8 +52,8 @@ const recentAlarmsList = document.querySelector("#recent-alarms-list");
 const expandAlarmsButton = document.querySelector("#expand-alarms");
 const popupTabButtons = [...document.querySelectorAll("[data-popup-tab]")];
 const popupViewElements = [...document.querySelectorAll("[data-popup-view]")];
-const interfaceModeButtons = [...document.querySelectorAll("[data-interface-mode-button]")];
-const interfaceModeDescription = document.querySelector("#interface-mode-description");
+const collapsibleSections = [...document.querySelectorAll("details[data-collapse-key]")];
+const interfaceModeSelect = document.querySelector("#interface-mode-select");
 const darkModeInput = document.querySelector("#dark-mode");
 const healthList = document.querySelector("#health-list");
 const copyDiagnosticsButton = document.querySelector("#copy-diagnostics");
@@ -140,9 +141,9 @@ let currentSetupWizardStep = 0;
 let currentExtensionUpdateDownloadUrl = "";
 const POPUP_VIEWS = ["overview", "dtm", "shifts", "alerts", "settings"];
 const SIMPLE_POPUP_VIEWS = ["overview", "dtm", "settings"];
-let activePopupView = POPUP_VIEWS.includes(localStorage.getItem("jlab-popup-view"))
-  ? localStorage.getItem("jlab-popup-view")
-  : "overview";
+let activePopupView = "overview";
+let collapsibleSectionStates = {};
+let collapsibleSectionsInitialized = false;
 
 const SETTINGS_BACKUP_FORMAT = "jlab-logbook-comment-monitor-backup";
 const SETTINGS_BACKUP_VERSION = 1;
@@ -162,14 +163,11 @@ extensionId.textContent = chrome.runtime.id;
 gmailExtensionId.textContent = chrome.runtime.id;
 microsoftRedirectUri.textContent = chrome.identity.getRedirectURL("microsoft");
 initializeAlertPolicyRows();
-setActivePopupView(activePopupView);
 
 for (const button of popupTabButtons) {
   button.addEventListener("click", () => setActivePopupView(button.dataset.popupTab));
 }
-for (const button of interfaceModeButtons) {
-  button.addEventListener("click", () => setInterfaceMode(button.dataset.interfaceModeButton));
-}
+interfaceModeSelect.addEventListener("change", () => setInterfaceMode(interfaceModeSelect.value));
 darkModeInput.addEventListener("click", async (event) => {
   event.preventDefault();
   event.stopPropagation();
@@ -445,19 +443,29 @@ testAuthorButton.addEventListener("click", async () => {
 });
 
 chrome.storage.onChanged.addListener(() => render());
-render();
+initializePopup().catch((error) => {
+  console.error("Could not restore popup preferences", error);
+  initializeCollapsibleSections({});
+  setActivePopupView("overview", false);
+  render();
+});
 chrome.runtime.sendMessage({ type: "refresh-shift-crew-if-due" }).catch(() => {});
 
-function setActivePopupView(view) {
+async function initializePopup() {
+  await initializePopupPreferences();
+  await render();
+}
+
+function setActivePopupView(view, persist = true) {
   activePopupView = POPUP_VIEWS.includes(view) ? view : "overview";
   document.body.dataset.activePopupView = activePopupView;
-  localStorage.setItem("jlab-popup-view", activePopupView);
   for (const button of popupTabButtons) {
     button.setAttribute("aria-pressed", String(button.dataset.popupTab === activePopupView));
   }
   for (const element of popupViewElements) {
     element.classList.toggle("popup-view-hidden", element.dataset.popupView !== activePopupView);
   }
+  if (persist) chrome.storage.local.set({ popupView: activePopupView }).catch(() => {});
 }
 
 function isFocusedInterfaceMode(value) {
@@ -580,23 +588,67 @@ function renderInterfaceMode(state) {
   currentInterfaceMode = interfaceMode;
   document.body.dataset.interfaceMode = interfaceMode;
   if (isFocusedInterfaceMode(interfaceMode) && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
-  for (const button of interfaceModeButtons) {
-    button.setAttribute("aria-pressed", String(button.dataset.interfaceModeButton === interfaceMode));
-  }
-  interfaceModeDescription.textContent = interfaceMode === "simple"
-    ? "Simple keeps the most-used controls on one page."
-    : interfaceMode === "large"
-      ? "Large simple keeps focused controls with bigger type and buttons."
-      : interfaceMode === "large-advanced"
-        ? "Large advanced shows every control with bigger type and buttons."
-        : "Advanced shows every monitoring and delivery control.";
-
+  interfaceModeSelect.value = interfaceMode;
 }
 
 function renderThemeButton(darkModeEnabled) {
   darkModeInput.setAttribute("aria-pressed", String(darkModeEnabled));
   darkModeInput.setAttribute("aria-label", `Switch to ${darkModeEnabled ? "light" : "dark"} mode`);
   darkModeInput.textContent = darkModeEnabled ? "Light mode" : "Dark mode";
+}
+
+async function initializePopupPreferences() {
+  const saved = await chrome.storage.local.get(["popupView", "collapsibleSectionStates"]);
+  const legacyPopupView = localStorage.getItem("jlab-popup-view");
+  activePopupView = POPUP_VIEWS.includes(saved.popupView)
+    ? saved.popupView
+    : POPUP_VIEWS.includes(legacyPopupView)
+      ? legacyPopupView
+      : "overview";
+
+  const savedSections = saved.collapsibleSectionStates
+    && typeof saved.collapsibleSectionStates === "object"
+    && !Array.isArray(saved.collapsibleSectionStates)
+    ? saved.collapsibleSectionStates
+    : {};
+  const sectionStates = {};
+  for (const section of collapsibleSections) {
+    const key = section.dataset.collapseKey;
+    const legacyState = localStorage.getItem(`jlab-collapse:${key}`);
+    sectionStates[key] = typeof savedSections[key] === "boolean"
+      ? savedSections[key]
+      : legacyState === "open"
+        ? true
+        : legacyState === "closed"
+          ? false
+          : section.open;
+  }
+
+  initializeCollapsibleSections(sectionStates);
+  setActivePopupView(activePopupView, false);
+  await chrome.storage.local.set({
+    popupView: activePopupView,
+    collapsibleSectionStates: { ...collapsibleSectionStates }
+  });
+  localStorage.removeItem("jlab-popup-view");
+  for (const key of Object.keys(collapsibleSectionStates)) {
+    localStorage.removeItem(`jlab-collapse:${key}`);
+  }
+}
+
+function initializeCollapsibleSections(savedStates) {
+  collapsibleSectionStates = {};
+  for (const section of collapsibleSections) {
+    const key = section.dataset.collapseKey;
+    if (typeof savedStates[key] === "boolean") section.open = savedStates[key];
+    collapsibleSectionStates[key] = section.open;
+    if (collapsibleSectionsInitialized) continue;
+    section.addEventListener("toggle", () => {
+      collapsibleSectionStates[key] = section.open;
+      chrome.storage.local.set({ collapsibleSectionStates: { ...collapsibleSectionStates } }).catch(() => {});
+    });
+  }
+  collapsibleSectionsInitialized = true;
 }
 
 function initializeAlertPolicyRows() {
@@ -928,6 +980,7 @@ async function render() {
   repeatDtmAlertsInput.checked = state.repeatDtmAlerts === true;
   const shiftEditEnabledBookSlugs = normalizeEnabledSlugs(state.shiftSummaryEditEnabledBooks, monitoredBooks);
   renderBookControls(monitoredBooks, enabledBookSlugs);
+  renderSimpleLogbookShortcut(monitoredBooks, enabledBookSlugs);
   renderShiftSummaries(
     state.shiftSummariesByBook,
     activeBooks,
@@ -1711,6 +1764,30 @@ function renderDiagnostics(diagnostics, monitoredBooks, enabledBookSlugs) {
       : "No entries returned";
     row.append(name, value);
     bookDiagnostics.append(row);
+  }
+}
+
+function renderSimpleLogbookShortcut(monitoredBooks, enabledBookSlugs) {
+  const enabled = monitoredBooks.filter((book) => enabledBookSlugs.includes(book.slug));
+  simpleLogbookButtons.replaceChildren();
+
+  if (!enabled.length) {
+    const empty = document.createElement("span");
+    empty.className = "simple-logbook-empty";
+    empty.textContent = "No enabled logbooks";
+    simpleLogbookButtons.append(empty);
+    return;
+  }
+
+  for (const book of enabled) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = book.name;
+    button.title = `Open ${book.name}`;
+    button.addEventListener("click", () => {
+      chrome.tabs.create({ url: `https://logbooks.jlab.org/book/${encodeURIComponent(book.slug)}` });
+    });
+    simpleLogbookButtons.append(button);
   }
 }
 
