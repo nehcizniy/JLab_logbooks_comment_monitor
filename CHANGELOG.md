@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.1.0
+
+- Added direct enabled-logbook buttons at the bottom of Simple-mode Monitoring and replaced the four Interface buttons with one dropdown.
+- Flattened the Interface control into one row with its dropdown and theme button, removing the collapsible panel.
+- Made Shift summaries collapsed by default and persisted every popup tab and open/closed section choice in the update-safe settings store and settings backups.
+
 ## 3.0.0
 
 - Replaced the Simple-mode Updates tab with **Settings** and moved Extension updates, the automatic check interval, Alarm level, Monitored logbooks, watched names, and Test my setup there.
