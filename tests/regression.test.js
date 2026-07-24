@@ -56,6 +56,7 @@ test("notification policy supports per-channel delivery, quiet hours, and snooze
   const preferences = context.defaultAlertPreferences();
   assert.equal(context.detectAlertPreset(preferences), "standard");
   assert.equal(context.alertPreferencesForPreset("essential").comments.system, false);
+  assert.equal(context.alertPreferencesForPreset("essential").logbookDowntime.system, true);
   assert.equal(context.alertPreferencesForPreset("everything").shiftCrewChanges.email, true);
   preferences.comments.email = false;
   assert.equal(context.detectAlertPreset(preferences), "custom");
@@ -102,6 +103,51 @@ test("parses MIS, Hall B, and Hall D schedule boundaries", () => {
   assert.deepEqual(workers(hallD.hourlyCrew[20]), { Leader: "Leader Evening", Worker: "Tonight Worker" });
 });
 
+test("confirms, closes, and totals daily logbook downtime", () => {
+  const book = { name: "HCLOG", slug: "hclog" };
+  const firstFailureAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 10, 0);
+  const confirmedAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 10, 5);
+  const recoveredAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 10, 30);
+  let result = context.updateLogbookDowntime({}, book, "failure", firstFailureAt, "Failed to fetch");
+  assert.equal(result.state.books.hclog.status, "suspected");
+  assert.equal(result.transition, null);
+  result = context.updateLogbookDowntime(result.state, book, "failure", confirmedAt, "Failed to fetch");
+  assert.equal(result.state.books.hclog.status, "down");
+  assert.equal(result.transition.type, "down");
+  assert.equal(result.transition.start, firstFailureAt);
+  const paused = context.pauseLogbookDowntime(result.state, ["hclog"], confirmedAt + 5 * 60 * 1000);
+  assert.equal(paused.books.hclog.status, "unknown");
+  assert.equal(paused.books.hclog.periods[0].end, confirmedAt + 5 * 60 * 1000);
+  result = context.updateLogbookDowntime(result.state, book, "success", recoveredAt);
+  assert.equal(result.state.books.hclog.status, "up");
+  assert.equal(result.transition.type, "recovered");
+  assert.equal(result.transition.durationMs, 30 * 60 * 1000);
+  const summary = context.summarizeDailyLogbookDowntime(result.state, [book], recoveredAt + 60 * 60 * 1000);
+  assert.equal(summary.totalMs, 30 * 60 * 1000);
+  assert.equal(summary.periods.length, 1);
+  assert.equal(summary.books[0].periods.length, 1);
+  assert.equal(context.formatDowntimeDuration(summary.totalMs), "30 min");
+
+  const previousDay = context.jlabLocalDateTimeToTimestamp(2026, 7, 16, 23, 50);
+  const afterMidnight = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 0, 20);
+  const crossMidnight = context.summarizeDailyLogbookDowntime({
+    books: { hclog: { name: "HCLOG", slug: "hclog", status: "up", periods: [{ start: previousDay, end: afterMidnight }] } }
+  }, [book], recoveredAt);
+  assert.equal(crossMidnight.totalMs, 20 * 60 * 1000);
+});
+
+test("does not count a JLab login response as downtime", () => {
+  const book = { name: "HBLOG", slug: "hblog" };
+  const firstFailureAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 11, 0);
+  let result = context.updateLogbookDowntime({}, book, "failure", firstFailureAt, "Failed to fetch");
+  result = context.updateLogbookDowntime(result.state, book, "auth", firstFailureAt + 5 * 60 * 1000, "AUTH_REQUIRED");
+  assert.equal(result.state.books.hblog.status, "login_required");
+  assert.equal(result.transition, null);
+  const summary = context.summarizeDailyLogbookDowntime(result.state, [book], firstFailureAt + 10 * 60 * 1000);
+  assert.equal(summary.totalMs, 0);
+  assert.equal(summary.books[0].periods.length, 0);
+});
+
 test("diagnostic snapshots exclude recipients and OAuth tokens", () => {
   const snapshot = context.createDiagnosticSnapshot({
     emailConfig: { recipients: ["private@example.com"], enabled: true, provider: "gmail" },
@@ -140,7 +186,7 @@ test("compares extension releases and selects the packaged ZIP", () => {
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "3.1.0");
+  assert.equal(manifest.version, "3.2.0");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
@@ -159,7 +205,7 @@ test("manifest and popup retain required extension structure", () => {
   assert.equal(collapseKeys.length, new Set(collapseKeys).size);
   assert.doesNotMatch(html, /class="shift-summary-card"[^>]*\sopen(?:\s|>)/);
   for (const id of [
-    "health-list", "alert-policy-list", "alert-preset", "shift-crew-details", "copy-diagnostics",
+    "health-list", "downtime-title", "downtime-total", "downtime-list", "alert-policy-list", "alert-preset", "shift-crew-details", "copy-diagnostics",
     "test-setup", "interface-mode-control",
     "setup-wizard", "setup-wizard-logbooks", "reset-recommended", "open-setup-guide",
     "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
@@ -214,6 +260,10 @@ test("manifest and popup retain required extension structure", () => {
   assert.match(backgroundJs, /const DTM_CHECK_ALARM = "jlab-dtm-check"/);
   assert.match(backgroundJs, /const DTM_CHECK_INTERVAL_OPTIONS = \[1, 5, 10, 15, 30, 60\]/);
   assert.match(backgroundJs, /if \(alarm\.name === DTM_CHECK_ALARM\) checkDtmEvents\(\)/);
+  assert.match(backgroundJs, /Promise\.allSettled\(activeBooks\.map\(\(book\) => fetchBook\(book\)\)\)/);
+  assert.match(backgroundJs, /alertType: "logbookDowntime"/);
+  assert.match(popupJs, /function renderDowntimeDashboard\(/);
+  assert.match(css, /\.downtime-dashboard/);
   assert.match(css, /body:is\(\[data-interface-mode="simple"\], \[data-interface-mode="large"\]\)/);
   assert.match(css, /data-interface-mode="large"\]\) \.shift-crew-tabs \{ display: none !important; \}/);
   assert.match(css, /body:is\(\[data-interface-mode="large"\], \[data-interface-mode="large-advanced"\]\) \{ width: 480px; \}/);
