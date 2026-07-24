@@ -186,7 +186,7 @@ test("compares extension releases and selects the packaged ZIP", () => {
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "3.2.0");
+  assert.equal(manifest.version, "3.2.1");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");

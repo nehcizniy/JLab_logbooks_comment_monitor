@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.2.1
+
+- Moved the installation instructions to the top of the README so new users can find the Chrome setup steps immediately.
+
 ## 3.2.0
 
 - Added per-logbook downtime monitoring with two-check confirmation, outage and recovery alerts, authentication-aware status, and an Advanced Monitoring health dashboard showing today’s total and every downtime period.

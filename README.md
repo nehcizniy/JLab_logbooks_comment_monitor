@@ -1,5 +1,16 @@
 # JLab Logbook Comment Monitor
 
+## Install
+
+1. Extract the ZIP file.
+2. Open Chrome and visit `chrome://extensions`.
+3. Turn on **Developer mode** in the upper-right corner.
+4. Click **Load unpacked**.
+5. Select the extracted `jlab-logbook-comment-monitor` folder.
+6. Pin the extension from Chrome's Extensions menu if you want its switch to stay visible.
+
+All unpacked installations use the permanent extension ID `gbfomjfeblcepcnmbohebdpndbfkcabj`. The public key that produces this ID is stored in `manifest.json`, so the ID remains the same when the folder is moved, the extension is installed on another computer, or a new version is loaded. Do not remove or replace the manifest's `key` value.
+
 ## Quick Start
 
 1. Install or reload the extension, open its popup, and follow the three-step setup guide to choose your logbooks and check interval.
@@ -61,17 +72,6 @@ Under **Settings**, **Test my setup** checks native system notifications, access
 Normal comment checks scan up to 200 IDs and stop after 20 consecutive unused IDs. Once per day, the extension performs a deeper recovery scan: it rechecks the previous 100 IDs and scans up to 600 IDs with a 100-ID gap tolerance. Seen comment IDs prevent duplicate alerts. The first recovery pass establishes its overlap baseline without treating older comments as new.
 
 Select the small **?** button beside **Comment monitor** for a quick guide inside the popup.
-
-## Install
-
-1. Extract the ZIP file.
-2. Open Chrome and visit `chrome://extensions`.
-3. Turn on **Developer mode** in the upper-right corner.
-4. Click **Load unpacked**.
-5. Select the extracted `jlab-logbook-comment-monitor` folder.
-6. Pin the extension from Chrome's Extensions menu if you want its switch to stay visible.
-
-All unpacked installations use the permanent extension ID `gbfomjfeblcepcnmbohebdpndbfkcabj`. The public key that produces this ID is stored in `manifest.json`, so the ID remains the same when the folder is moved, the extension is installed on another computer, or a new version is loaded. Do not remove or replace the manifest's `key` value.
 
 ## Update or return to a previous version
 
