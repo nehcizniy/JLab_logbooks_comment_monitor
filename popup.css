@@ -129,6 +129,20 @@ body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-cr
 .health-row span { color: #607087; overflow-wrap: anywhere; }
 .health-row.error { background: #fff0f1; }
 .health-row.error strong, .health-row.error span { color: #a72f39; }
+.downtime-dashboard { display: grid; gap: 7px; padding-top: 2px; }
+.downtime-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 1px 0; }
+.downtime-heading strong { color: #365d87; font-size: 9px; }
+.downtime-heading span { color: #607087; font-size: 8px; text-align: right; }
+.downtime-list { display: grid; gap: 6px; }
+.downtime-book { display: grid; gap: 4px; padding: 8px; border: 1px solid #d5e0ec; border-radius: 8px; background: #fff; }
+.downtime-book.down { border-color: #e6a8ae; background: #fff0f1; }
+.downtime-book.suspected { border-color: #e8cf91; background: #fff8e8; }
+.downtime-book-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.downtime-book-heading strong { color: #365d87; font-size: 9px; }
+.downtime-book-heading span, .downtime-status, .downtime-periods span, .downtime-empty { color: #607087; font-size: 8px; line-height: 1.35; }
+.downtime-book.down :is(.downtime-book-heading strong, .downtime-status) { color: #a72f39; }
+.downtime-periods { display: grid; gap: 2px; padding-top: 2px; border-top: 1px solid #e4ebf3; }
+.downtime-note { color: #7a8596; font-size: 8px; line-height: 1.35; }
 #copy-diagnostics { min-height: 30px; font-size: 9px; }
 .health-copy-status { min-height: 12px; color: #607087; font-size: 8px; }
 .recent-alarms-body { margin-top: 9px; }
@@ -416,6 +430,8 @@ body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) .
 /* Give the denser Advanced-only rows enough room for the larger labels and fields. */
 body[data-interface-mode="large-advanced"] .quiet-hours-row { grid-template-columns: 1fr 105px auto 105px; gap: 8px; }
 body[data-interface-mode="large-advanced"] .health-row { grid-template-columns: 105px 1fr; gap: 10px; }
+body[data-interface-mode="large-advanced"] :is(.downtime-heading strong, .downtime-book-heading strong) { font-size: 14px; }
+body[data-interface-mode="large-advanced"] :is(.downtime-heading span, .downtime-book-heading span, .downtime-status, .downtime-periods span, .downtime-empty, .downtime-note) { font-size: 12px; }
 body[data-interface-mode="large-advanced"] .book-diagnostics div { grid-template-columns: 110px 1fr; gap: 10px; }
 body[data-interface-mode="large-advanced"] .book-range-control input { width: 80px; }
 body[data-interface-mode="large-advanced"] .book-range-control select { width: 100px; }
@@ -437,6 +453,7 @@ body[data-interface-mode="large-advanced"] .book-range-control select { width: 1
 
 :root[data-theme="dark"] :is(
   .popup-tabs, .shift-crew-tabs, .extension-update-toggle, .health-row,
+  .downtime-book,
   .shift-crew-hover-card, .dtm-status-row, .email-optional-note, .email-provider-settings,
   .book-diagnostics div, .setup-test-result, .setup-wizard-heading > span,
   .setup-wizard-test
@@ -485,6 +502,7 @@ body[data-interface-mode="large-advanced"] .book-range-control select { width: 1
   .dtm-reminder-copy > span, .email-optional-note, .email-enabled-row span,
   .email-provider-settings p, .email-status, .email-privacy, .book-add-status,
   .simple-logbook-shortcut-heading span,
+  .downtime-note,
   .book-range-control, .book-empty, .book-diagnostics span, .author-row span,
   .footnote, .settings-backup-body p, .settings-backup-status,
   .setup-test-card > span, .setup-test-result, .setup-wizard-step, .setup-wizard-note
@@ -499,6 +517,10 @@ body[data-interface-mode="large-advanced"] .book-range-control select { width: 1
 :root[data-theme="dark"] .fold-summary::after { color: #9bb2ca; }
 :root[data-theme="dark"] :is(.health-row.error, .setup-test-result.error) { background: #3a2028; }
 :root[data-theme="dark"] :is(.health-row.error, .setup-test-result.error) :is(strong, span) { color: #ffabb3; }
+:root[data-theme="dark"] .downtime-book.down { border-color: #75404a; background: #3a2028; }
+:root[data-theme="dark"] .downtime-book.suspected { border-color: #715d31; background: #332d20; }
+:root[data-theme="dark"] .downtime-book.down :is(.downtime-book-heading strong, .downtime-status) { color: #ffabb3; }
+:root[data-theme="dark"] .downtime-periods { border-top-color: #34465c; }
 :root[data-theme="dark"] .setup-test-result.skipped { background: #252d38; }
 :root[data-theme="dark"] :is(.extension-update-status.available, .email-status.connected) { color: #71d5aa; }
 :root[data-theme="dark"] :is(.extension-update-status.error, .shift-crew-status.error, .email-status.error, .setup-wizard-error) { color: #ff9ea8; }

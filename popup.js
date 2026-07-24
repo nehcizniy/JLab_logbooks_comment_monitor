@@ -56,6 +56,9 @@ const collapsibleSections = [...document.querySelectorAll("details[data-collapse
 const interfaceModeSelect = document.querySelector("#interface-mode-select");
 const darkModeInput = document.querySelector("#dark-mode");
 const healthList = document.querySelector("#health-list");
+const downtimeTitle = document.querySelector("#downtime-title");
+const downtimeTotal = document.querySelector("#downtime-total");
+const downtimeList = document.querySelector("#downtime-list");
 const copyDiagnosticsButton = document.querySelector("#copy-diagnostics");
 const copyDiagnosticsStatus = document.querySelector("#copy-diagnostics-status");
 const alertPolicyList = document.querySelector("#alert-policy-list");
@@ -754,7 +757,7 @@ function renderDtmControls(state, enabled) {
   }
 }
 
-async function renderHealthDashboard(state, _intervalMinutes) {
+async function renderHealthDashboard(state, activeBooks) {
   healthList.replaceChildren();
   const health = normalizeHealthState(state.healthState);
   const [monitorAlarm, dtmAlarm, shiftCrewAlarm] = await Promise.all([
@@ -779,6 +782,78 @@ async function renderHealthDashboard(state, _intervalMinutes) {
       : [item.detail, item.lastSuccess ? `Success ${formatHealthTime(item.lastSuccess)}` : ""].filter(Boolean).join(" · ") || "Waiting for first check";
     appendHealthRow(labels[source], summary, item.status);
   }
+  renderDowntimeDashboard(state.logbookDowntime, activeBooks);
+}
+
+function renderDowntimeDashboard(value, activeBooks) {
+  const now = Date.now();
+  const summary = summarizeDailyLogbookDowntime(value, activeBooks, now);
+  downtimeTitle.textContent = `Logbook downtime · ${new Intl.DateTimeFormat([], {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric"
+  }).format(new Date(now))}`;
+  downtimeTotal.textContent = summary.periods.length
+    ? `Total ${formatDowntimeDuration(summary.totalMs)} across ${summary.periods.length} ${summary.periods.length === 1 ? "period" : "periods"}`
+    : "Total 0 min · No confirmed downtime";
+  downtimeList.replaceChildren();
+
+  if (!activeBooks.length) {
+    const empty = document.createElement("span");
+    empty.className = "downtime-empty";
+    empty.textContent = "No enabled logbooks";
+    downtimeList.append(empty);
+    return;
+  }
+
+  for (const book of summary.books) {
+    const card = document.createElement("article");
+    card.className = `downtime-book${book.status === "down" ? " down" : book.status === "suspected" ? " suspected" : ""}`;
+    const heading = document.createElement("div");
+    heading.className = "downtime-book-heading";
+    const name = document.createElement("strong");
+    name.textContent = book.name;
+    const total = document.createElement("span");
+    total.textContent = `Total ${book.periods.length ? formatDowntimeDuration(book.totalMs) : "0 min"}`;
+    heading.append(name, total);
+    const status = document.createElement("span");
+    status.className = "downtime-status";
+    status.textContent = downtimeStatusText(book);
+    card.append(heading, status);
+
+    const periods = document.createElement("div");
+    periods.className = "downtime-periods";
+    if (!book.periods.length) {
+      const none = document.createElement("span");
+      none.textContent = "No downtime periods today";
+      periods.append(none);
+    } else {
+      for (const period of book.periods) {
+        const row = document.createElement("span");
+        row.textContent = `${formatDowntimeClock(period.start)}–${period.active ? "now" : formatDowntimeClock(period.end)} · ${formatDowntimeDuration(period.durationMs)}`;
+        periods.append(row);
+      }
+    }
+    card.append(periods);
+    downtimeList.append(card);
+  }
+}
+
+function downtimeStatusText(book) {
+  if (book.status === "down") return `Confirmed down since ${formatDowntimeClock(book.downSince)}`;
+  if (book.status === "suspected") return `Possible outage · ${book.consecutiveFailures} of ${LOGBOOK_DOWNTIME_CONFIRM_FAILURES} failed checks`;
+  if (book.status === "login_required") return "JLab sign-in required · Not counted as downtime";
+  if (book.status === "up") return `Responding · Checked ${formatDowntimeClock(book.lastCheckAt)}`;
+  return "Waiting for the first availability check";
+}
+
+function formatDowntimeClock(value) {
+  if (!Number(value)) return "unknown";
+  return new Date(Number(value)).toLocaleTimeString([], {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 
 function appendHealthRow(label, text, status) {
@@ -956,7 +1031,7 @@ async function render() {
     "shiftCrewError", "lastShiftCrewCheck", "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "alertPreferences", "quietHours",
     "notificationsSnoozedUntil", "healthState", "lastSuccessfulCheck", "commentScanDiagnostic",
     "lastCommentRecoveryScan", "interfaceMode", "themeMode", "onboardingCompleted", "extensionUpdateState",
-    "trackExtensionUpdates"
+    "trackExtensionUpdates", "logbookDowntime"
   ]);
   const enabled = state.enabled !== false;
   const monitoredBooks = normalizeMonitoredBooks(state.monitoredBooks);
@@ -994,7 +1069,7 @@ async function render() {
   renderShiftCrewControls(state);
   renderAlertPolicyControls(state);
   renderDtmControls(state, enabled);
-  await renderHealthDashboard(state, intervalMinutes);
+  await renderHealthDashboard(state, activeBooks);
   renderEmailControls(state);
   if (!authorsLoaded) {
     const authors = Array.isArray(state.watchedAuthors) ? state.watchedAuthors : [];

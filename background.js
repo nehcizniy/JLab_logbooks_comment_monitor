@@ -14,6 +14,7 @@ const DEFAULT_DAY_RANGE = 1;
 const MAX_HOUR_RANGE = 720;
 const MAX_DAY_RANGE = 30;
 const MAX_TIME_RANGE_RESULTS = 5000;
+const LOGBOOK_REQUEST_TIMEOUT_MILLISECONDS = 20 * 1000;
 const API_ROOT = "https://logbooks.jlab.org/api/elog/entries";
 const ENTRY_ROOT = "https://logbooks.jlab.org/entry/";
 const DEFAULT_BOOKS = [
@@ -26,11 +27,13 @@ const ENTRY_NOTIFICATION_PREFIX = "jlab-entry:";
 const SHIFT_EDIT_NOTIFICATION_PREFIX = "jlab-shift-edit:";
 const EVENT_NOTIFICATION_PREFIX = "jlab-event:";
 const SHIFT_CREW_NOTIFICATION_PREFIX = "jlab-shift-crew:";
+const DOWNTIME_NOTIFICATION_PREFIX = "jlab-downtime:";
 const UPDATE_NOTIFICATION_PREFIX = "jlab-update:";
 const TEST_NOTIFICATION_ID = "jlab-test";
 const COMMENT_CURSOR_SEED = 58417;
 const MAX_ALERT_HISTORY = 20;
 const COMMENT_RECOVERY_INTERVAL_MILLISECONDS = 24 * 60 * 60 * 1000;
+let logbookDowntimeWriteQueue = Promise.resolve();
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   // Updates must only add or migrate values. Never clear extension storage here:
@@ -41,7 +44,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState",
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState", "settingsSchemaVersion",
     "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "interfaceMode", "themeMode", "onboardingCompleted", "extensionUpdateState",
-    "trackExtensionUpdates"
+    "trackExtensionUpdates", "logbookDowntime"
   ]);
   const updates = {};
   if (typeof current.enabled !== "boolean") updates.enabled = true;
@@ -88,6 +91,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   updates.simpleShiftCrewHalls = normalizeSimpleShiftCrewHalls(current.simpleShiftCrewHalls);
   updates.interfaceMode = normalizeInterfaceMode(current.interfaceMode);
   updates.themeMode = normalizeThemeMode(current.themeMode);
+  updates.logbookDowntime = normalizeLogbookDowntime(current.logbookDowntime, monitoredBooks);
   updates.extensionUpdateState = normalizeExtensionUpdateState(
     current.extensionUpdateState,
     chrome.runtime.getManifest().version
@@ -134,6 +138,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabled || changes.intervalMinutes || changes.enabledBooks || changes.monitoredBooks) syncAlarm();
+  if (changes.enabled?.newValue === false) pauseAllLogbookDowntime().catch(() => null);
   if (changes.enabled || changes.dtmIntervalMinutes) syncDtmAlarm();
   if (changes.shiftCrewSchedules) syncShiftCrewAlarm();
   if (changes.trackExtensionUpdates && typeof changes.trackExtensionUpdates.oldValue === "boolean") {
@@ -250,7 +255,7 @@ async function ensureMonitorSettings() {
   const state = await chrome.storage.local.get([
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState",
     "settingsSchemaVersion", "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "interfaceMode", "themeMode", "onboardingCompleted",
-    "trackExtensionUpdates"
+    "trackExtensionUpdates", "monitoredBooks", "logbookDowntime"
   ]);
   await chrome.storage.local.set({
     alertPreferences: normalizeAlertPreferences(state.alertPreferences),
@@ -259,6 +264,7 @@ async function ensureMonitorSettings() {
       ? Number(state.notificationsSnoozedUntil)
       : 0,
     healthState: normalizeHealthState(state.healthState),
+    logbookDowntime: normalizeLogbookDowntime(state.logbookDowntime, normalizeMonitoredBooks(state.monitoredBooks)),
     shiftCrewAlertEnabledHalls: Array.isArray(state.shiftCrewAlertEnabledHalls)
       ? state.shiftCrewAlertEnabledHalls.filter((hall) => SHIFT_CREW_HALLS.includes(hall))
       : [],
@@ -473,6 +479,13 @@ async function handleEnabledBooksChange(change) {
   }
   if (!currentBooks.size) updates.commentCursorInitialized = false;
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
+  if (disabledBooks.length) await pauseLogbookDowntimeBooks(disabledBooks);
+}
+
+async function pauseAllLogbookDowntime() {
+  const { monitoredBooks } = await chrome.storage.local.get("monitoredBooks");
+  const books = normalizeMonitoredBooks(monitoredBooks);
+  await pauseLogbookDowntimeBooks(books.map((book) => book.slug));
 }
 
 function normalizeMonitoredBooks(value, fallbackLimit = DEFAULT_ENTRY_LIMIT) {
@@ -603,7 +616,11 @@ async function checkForComments() {
   }
 
   try {
-    const results = await Promise.all(activeBooks.map((book) => fetchBook(book)));
+    const bookResults = await Promise.allSettled(activeBooks.map((book) => fetchBook(book)));
+    await recordLogbookAvailability(activeBooks, bookResults);
+    const failedBook = bookResults.find((result) => result.status === "rejected");
+    if (failedBook) throw failedBook.reason;
+    const results = bookResults.map((result) => result.value);
     const entries = results.flat();
     const shiftSummaryEntriesByBook = Object.fromEntries(
       results.map((bookEntries, index) => [
@@ -879,7 +896,7 @@ async function removeLogbook(value) {
   const slug = String(value || "").trim().toLocaleLowerCase();
   const state = await chrome.storage.local.get([
     "monitoredBooks", "enabledBooks", "commentCounts", "pageEventStates", "bookDiagnostics", "shiftSummariesByBook",
-    "shiftSummaryFingerprints", "shiftSummaryEditEnabledBooks"
+    "shiftSummaryFingerprints", "shiftSummaryEditEnabledBooks", "logbookDowntime"
   ]);
   const books = normalizeMonitoredBooks(state.monitoredBooks);
   const nextBooks = books.filter((book) => book.slug !== slug);
@@ -896,10 +913,12 @@ async function removeLogbook(value) {
   const nextDiagnostics = { ...(state.bookDiagnostics || {}) };
   const nextShiftSummaries = { ...(state.shiftSummariesByBook || {}) };
   const nextShiftFingerprints = { ...(state.shiftSummaryFingerprints || {}) };
+  const nextDowntime = normalizeLogbookDowntime(state.logbookDowntime, books);
   delete nextEventStates[slug];
   delete nextDiagnostics[slug];
   delete nextShiftSummaries[slug];
   delete nextShiftFingerprints[slug];
+  delete nextDowntime.books[slug];
   await chrome.storage.local.set({
     monitoredBooks: nextBooks,
     enabledBooks: nextEnabled,
@@ -909,6 +928,7 @@ async function removeLogbook(value) {
     shiftSummariesByBook: nextShiftSummaries,
     shiftSummaryFingerprints: nextShiftFingerprints,
     shiftSummaryEditEnabledBooks: nextShiftEditEnabled,
+    logbookDowntime: nextDowntime,
     ...(nextEnabled.length ? {} : { commentCursorInitialized: false })
   });
 }
@@ -927,11 +947,11 @@ async function fetchBook(book) {
     params.append("field", field);
   }
 
-  const response = await fetch(`${API_ROOT}?${params}`, {
+  const response = await fetchWithTimeout(`${API_ROOT}?${params}`, {
     credentials: "include",
     cache: "no-store",
     headers: { Accept: "application/json" }
-  });
+  }, LOGBOOK_REQUEST_TIMEOUT_MILLISECONDS);
 
   if (response.status === 401 || response.status === 403) {
     throw new Error("AUTH_REQUIRED");
@@ -1201,10 +1221,98 @@ async function showShiftCrewChangeNotification(schedule) {
   });
 }
 
+async function showLogbookDowntimeNotification(transition) {
+  const book = transition.book || {};
+  const url = `https://logbooks.jlab.org/book/${encodeURIComponent(book.slug || "")}`;
+  const recovered = transition.type === "recovered";
+  await showSystemNotification({
+    id: `${DOWNTIME_NOTIFICATION_PREFIX}${book.slug || "logbooks"}:${transition.type}`,
+    alertType: "logbookDowntime",
+    priority: recovered ? "informational" : "urgent",
+    systemTitle: recovered ? `${book.name}: Available again` : `${book.name}: Not responding`,
+    message: recovered
+      ? `Estimated downtime: ${formatDowntimeDuration(transition.durationMs)}.${transition.loginRequired ? " The server responded, but JLab sign-in is required." : ""}`
+      : `Two consecutive checks failed. Downtime began around ${formatJlabClockTime(transition.start)}.`,
+    url,
+    openButtonTitle: "Open logbook"
+  });
+}
+
 function stableHash(value) {
   let hash = 0;
   for (const character of String(value || "event")) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
   return Math.abs(hash).toString(36);
+}
+
+async function recordLogbookAvailability(activeBooks, settledResults, checkedAt = Date.now()) {
+  return queueLogbookDowntimeWrite(async () => {
+    const { logbookDowntime } = await chrome.storage.local.get("logbookDowntime");
+    let next = normalizeLogbookDowntime(logbookDowntime, activeBooks, checkedAt);
+    const transitions = [];
+    for (let index = 0; index < activeBooks.length; index += 1) {
+      const result = settledResults[index];
+      const outcome = result?.status === "fulfilled"
+        ? "success"
+        : isAuthenticationFailure(result?.reason)
+          ? "auth"
+          : "failure";
+      const updated = updateLogbookDowntime(
+        next,
+        activeBooks[index],
+        outcome,
+        checkedAt,
+        result?.status === "rejected" ? result.reason : ""
+      );
+      next = updated.state;
+      if (updated.transition) transitions.push(updated.transition);
+    }
+    await chrome.storage.local.set({ logbookDowntime: next });
+    for (const transition of transitions) {
+      await showLogbookDowntimeNotification(transition).catch((error) => {
+        console.error("Could not deliver logbook downtime alert", error);
+      });
+    }
+    return { state: next, transitions };
+  });
+}
+
+async function pauseLogbookDowntimeBooks(slugs, pausedAt = Date.now()) {
+  return queueLogbookDowntimeWrite(async () => {
+    const { logbookDowntime } = await chrome.storage.local.get("logbookDowntime");
+    const next = pauseLogbookDowntime(logbookDowntime, slugs, pausedAt);
+    await chrome.storage.local.set({ logbookDowntime: next });
+    return next;
+  });
+}
+
+function queueLogbookDowntimeWrite(work) {
+  logbookDowntimeWriteQueue = logbookDowntimeWriteQueue.then(work, work);
+  return logbookDowntimeWriteQueue;
+}
+
+function isAuthenticationFailure(error) {
+  return /AUTH_REQUIRED|login required|HTTP (?:401|403)/i.test(String(error?.message || error || ""));
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMilliseconds = LOGBOOK_REQUEST_TIMEOUT_MILLISECONDS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, Number(timeoutMilliseconds)));
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("JLab request timed out");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function formatJlabClockTime(value) {
+  return new Date(Number(value)).toLocaleTimeString([], {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 
 async function showTestNotification() {
@@ -1380,7 +1488,7 @@ async function showSystemNotification(alert) {
       priority: chromeNotificationPriority(priority),
       buttons: isTest
         ? [{ title: "Clear" }]
-        : [{ title: "Clear" }, { title: "Go to entry" }]
+        : [{ title: "Clear" }, { title: alert.openButtonTitle || "Go to entry" }]
     });
   }
   if (deliverEmail) {
@@ -1537,6 +1645,7 @@ function isMonitorNotification(id) {
     || id.startsWith(SHIFT_EDIT_NOTIFICATION_PREFIX)
     || id.startsWith(EVENT_NOTIFICATION_PREFIX)
     || id.startsWith(SHIFT_CREW_NOTIFICATION_PREFIX)
+    || id.startsWith(DOWNTIME_NOTIFICATION_PREFIX)
     || id.startsWith(UPDATE_NOTIFICATION_PREFIX);
 }
 

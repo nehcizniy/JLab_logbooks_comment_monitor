@@ -1,4 +1,4 @@
-const MONITOR_SETTINGS_SCHEMA_VERSION = 6;
+const MONITOR_SETTINGS_SCHEMA_VERSION = 7;
 const MONITOR_INTERFACE_MODES = ["simple", "large", "advanced", "large-advanced"];
 const MONITOR_THEME_MODES = ["light", "dark"];
 const MONITOR_SHIFT_CREW_HALLS = ["hallA", "hallB", "hallC", "hallD"];
@@ -7,7 +7,8 @@ const MONITOR_ALERT_TYPES = [
   { key: "watchedNames", label: "Watched names" },
   { key: "shiftSummaryEdits", label: "Shift-summary edits" },
   { key: "dtmEvents", label: "DTM events" },
-  { key: "shiftCrewChanges", label: "Shift-crew changes" }
+  { key: "shiftCrewChanges", label: "Shift-crew changes" },
+  { key: "logbookDowntime", label: "Logbook downtime" }
 ];
 const MONITOR_ALERT_PRESETS = ["essential", "standard", "everything"];
 
@@ -32,9 +33,9 @@ function defaultAlertPreferences() {
 function alertPreferencesForPreset(value) {
   const preset = MONITOR_ALERT_PRESETS.includes(value) ? value : "standard";
   const enabledTypes = preset === "essential"
-    ? new Set(["watchedNames", "dtmEvents"])
+    ? new Set(["watchedNames", "dtmEvents", "logbookDowntime"])
     : preset === "standard"
-      ? new Set(["comments", "watchedNames", "shiftSummaryEdits", "dtmEvents"])
+      ? new Set(["comments", "watchedNames", "shiftSummaryEdits", "dtmEvents", "logbookDowntime"])
       : new Set(MONITOR_ALERT_TYPES.map(({ key }) => key));
   return Object.fromEntries(MONITOR_ALERT_TYPES.map(({ key }) => [
     key,

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.2.0
+
+- Added per-logbook downtime monitoring with two-check confirmation, outage and recovery alerts, authentication-aware status, and an Advanced Monitoring health dashboard showing today’s total and every downtime period.
+
 ## 3.1.0
 
 - Added direct enabled-logbook buttons at the bottom of Simple-mode Monitoring and replaced the four Interface buttons with one dropdown.
