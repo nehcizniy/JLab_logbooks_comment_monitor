@@ -56,8 +56,17 @@ test("notification policy supports per-channel delivery, quiet hours, and snooze
   const preferences = context.defaultAlertPreferences();
   assert.equal(context.detectAlertPreset(preferences), "standard");
   assert.equal(context.alertPreferencesForPreset("essential").comments.system, false);
-  assert.equal(context.alertPreferencesForPreset("essential").logbookDowntime.system, true);
+  assert.equal(context.alertPreferencesForPreset("essential").logbookDowntime.system, false);
+  assert.equal(context.alertPreferencesForPreset("standard").logbookDowntime.email, false);
+  assert.equal(context.alertPreferencesForPreset("everything").logbookDowntime.system, true);
   assert.equal(context.alertPreferencesForPreset("everything").shiftCrewChanges.email, true);
+  const legacyStandard = context.legacyAlertPreferencesForPreset("standard");
+  const migratedStandard = context.migrateAlertPreferences(legacyStandard, 7);
+  assert.equal(context.detectAlertPreset(migratedStandard), "standard");
+  assert.equal(migratedStandard.logbookDowntime.system, false);
+  const legacyCustom = context.legacyAlertPreferencesForPreset("standard");
+  legacyCustom.comments.email = false;
+  assert.equal(context.migrateAlertPreferences(legacyCustom, 7).logbookDowntime.system, true);
   preferences.comments.email = false;
   assert.equal(context.detectAlertPreset(preferences), "custom");
   const normalTime = easternHour(12);
@@ -74,8 +83,70 @@ test("notification policy supports per-channel delivery, quiet hours, and snooze
   assert.equal(context.alertPriorityLabel("urgent"), "Urgent");
   assert.equal(context.chromeNotificationPriority("informational"), 0);
   assert.match(context.actionableErrorMessage(new Error("AUTH_REQUIRED")), /sign-in is needed/i);
+  assert.match(context.actionableErrorMessage(new Error("JLab returned HTTP 429")), /rate limiting/i);
   assert.match(context.actionableErrorMessage(new Error("failed to fetch")), /network or VPN/i);
   assert.match(context.actionableErrorMessage(new Error("Hall C: enter a supported JLab shift-schedule URL"), "shiftCrew"), /Hall C:/);
+});
+
+test("classifies logbook failures without counting local connection problems", () => {
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure({ code: "AUTH_REQUIRED" }).outcome,
+    "auth"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure({ code: "RATE_LIMITED" }).outcome,
+    "rate_limited"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure({ code: "SERVER_ERROR", httpStatus: 503 }).outcome,
+    "service_failure"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure({ code: "API_FORMAT_ERROR" }).outcome,
+    "api_error"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure(new Error("Failed to fetch"), {
+      online: false,
+      internetReachable: false,
+      jlabReachable: false,
+      logbooksReachable: false
+    }).outcome,
+    "network_issue"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure(new Error("Failed to fetch"), {
+      online: true,
+      internetReachable: true,
+      jlabReachable: false,
+      logbooksReachable: false
+    }).outcome,
+    "jlab_path_issue"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure(new Error("Failed to fetch"), {
+      online: true,
+      internetReachable: false,
+      jlabReachable: true,
+      logbooksReachable: false
+    }).outcome,
+    "service_failure"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure(new Error("Failed to fetch"), {
+      online: true,
+      internetReachable: true,
+      jlabReachable: true,
+      logbooksReachable: false
+    }).outcome,
+    "service_failure"
+  );
+  assert.equal(
+    context.classifyLogbookAvailabilityFailure(new Error("Request timed out"), {
+      otherBookSucceeded: true
+    }).outcome,
+    "service_failure"
+  );
 });
 
 test("groups multiple new comments into one alert per logbook entry", () => {
@@ -108,17 +179,22 @@ test("confirms, closes, and totals daily logbook downtime", () => {
   const firstFailureAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 10, 0);
   const confirmedAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 10, 5);
   const recoveredAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 10, 30);
-  let result = context.updateLogbookDowntime({}, book, "failure", firstFailureAt, "Failed to fetch");
+  let result = context.updateLogbookDowntime({}, book, "service_failure", firstFailureAt, "JLab returned HTTP 503");
   assert.equal(result.state.books.hclog.status, "suspected");
   assert.equal(result.transition, null);
-  result = context.updateLogbookDowntime(result.state, book, "failure", confirmedAt, "Failed to fetch");
+  result = context.updateLogbookDowntime(result.state, book, "service_failure", confirmedAt, "JLab returned HTTP 503");
   assert.equal(result.state.books.hclog.status, "down");
   assert.equal(result.transition.type, "down");
   assert.equal(result.transition.start, firstFailureAt);
-  const paused = context.pauseLogbookDowntime(result.state, ["hclog"], confirmedAt + 5 * 60 * 1000);
+  const confirmedState = result.state;
+  const interruptedAt = confirmedAt + 5 * 60 * 1000;
+  const interrupted = context.updateLogbookDowntime(confirmedState, book, "network_issue", interruptedAt, "Internet unavailable");
+  assert.equal(interrupted.state.books.hclog.status, "network_issue");
+  assert.equal(interrupted.state.books.hclog.periods[0].end, interruptedAt);
+  const paused = context.pauseLogbookDowntime(confirmedState, ["hclog"], interruptedAt);
   assert.equal(paused.books.hclog.status, "unknown");
-  assert.equal(paused.books.hclog.periods[0].end, confirmedAt + 5 * 60 * 1000);
-  result = context.updateLogbookDowntime(result.state, book, "success", recoveredAt);
+  assert.equal(paused.books.hclog.periods[0].end, interruptedAt);
+  result = context.updateLogbookDowntime(confirmedState, book, "success", recoveredAt);
   assert.equal(result.state.books.hclog.status, "up");
   assert.equal(result.transition.type, "recovered");
   assert.equal(result.transition.durationMs, 30 * 60 * 1000);
@@ -139,7 +215,7 @@ test("confirms, closes, and totals daily logbook downtime", () => {
 test("does not count a JLab login response as downtime", () => {
   const book = { name: "HBLOG", slug: "hblog" };
   const firstFailureAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 11, 0);
-  let result = context.updateLogbookDowntime({}, book, "failure", firstFailureAt, "Failed to fetch");
+  let result = context.updateLogbookDowntime({}, book, "service_failure", firstFailureAt, "JLab returned HTTP 503");
   result = context.updateLogbookDowntime(result.state, book, "auth", firstFailureAt + 5 * 60 * 1000, "AUTH_REQUIRED");
   assert.equal(result.state.books.hblog.status, "login_required");
   assert.equal(result.transition, null);
@@ -186,7 +262,7 @@ test("compares extension releases and selects the packaged ZIP", () => {
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "3.2.1");
+  assert.equal(manifest.version, "3.2.2");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");

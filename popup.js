@@ -840,9 +840,13 @@ function renderDowntimeDashboard(value, activeBooks) {
 }
 
 function downtimeStatusText(book) {
-  if (book.status === "down") return `Confirmed down since ${formatDowntimeClock(book.downSince)}`;
-  if (book.status === "suspected") return `Possible outage · ${book.consecutiveFailures} of ${LOGBOOK_DOWNTIME_CONFIRM_FAILURES} failed checks`;
+  if (book.status === "down") return `Likely JLab outage since ${formatDowntimeClock(book.downSince)}`;
+  if (book.status === "suspected") return `Possible JLab outage · ${book.consecutiveFailures} of ${LOGBOOK_DOWNTIME_CONFIRM_FAILURES} JLab-specific failures`;
   if (book.status === "login_required") return "JLab sign-in required · Not counted as downtime";
+  if (book.status === "rate_limited") return "JLab rate limited the check · Not counted as downtime";
+  if (book.status === "network_issue") return "Internet or VPN problem · Not counted as downtime";
+  if (book.status === "jlab_path_issue") return "JLab or VPN path unreachable · Not counted as downtime";
+  if (book.status === "api_error") return "Unexpected JLab API response · Not counted as downtime";
   if (book.status === "up") return `Responding · Checked ${formatDowntimeClock(book.lastCheckAt)}`;
   return "Waiting for the first availability check";
 }

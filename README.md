@@ -47,7 +47,7 @@ The **Alerts** view starts with three straightforward levels:
 
 - **Essential** — DTM event changes and new entries by watched Authors or Entry Makers.
 - **Standard** — Essential plus comments and edits to the newest shift summary. This is the default and recommended level.
-- **Everything** — all alert types, including Shift Crew changes and recurring reminders while a DTM event remains open.
+- **Everything** — all alert types, including Shift Crew changes, logbook downtime, and recurring reminders while a DTM event remains open.
 
 The **Advanced** section keeps individual System and Email switches and quiet hours available without putting them in the main workflow. The dedicated DTM tab keeps its independent interval and recurring-reminder switch available in all four interface modes. Changing an individual alert choice labels the setup **Custom**. **Pause alerts** temporarily suppresses system and email delivery for 1, 4, or 8 hours while still saving each change in **Recent alarms**.
 
@@ -65,7 +65,11 @@ Every collapsible popup section remembers whether the user left it open or close
 
 ## Monitoring health and recovery
 
-The **Monitoring health** panel reports the last successful check, Chrome's next scheduled checks, entries and comment IDs scanned, Shift Crew and DTM status, email delivery status, and the latest error for each source. Below Email, Advanced and Large advanced show **Logbook downtime** for the current JLab calendar day: an overall total, each enabled logbook’s total, and every individual outage period. Two consecutive failed checks confirm an outage and count it from the first failed check; the next successful response closes the period and reports the estimated duration. A JLab login response is shown as **Sign-in required** and is not counted as downtime. Downtime and recovery use the normal System and Email alert controls. Repeated failures show a consecutive-failure count so a persistent problem is easy to distinguish from a one-time error. **Copy diagnostics** copies a troubleshooting snapshot without email recipients, OAuth tokens, or passwords.
+The **Monitoring health** panel reports the last successful check, Chrome's next scheduled checks, entries and comment IDs scanned, Shift Crew and DTM status, email delivery status, and the latest error for each source. Below Email, Advanced and Large advanced show **Logbook downtime** for the current JLab calendar day: an overall total, each enabled logbook’s total, and every individual outage period.
+
+When a logbook request fails, the extension classifies the response and, when necessary, checks the main Logbooks site, another JLab service, a separate internet endpoint, the other enabled logbooks, and the browser's network hint. Sign-in responses, rate limiting, unexpected API formats, local internet/VPN failures, and ambiguous JLab/VPN path failures appear as separate statuses and are not counted as downtime. Only repeated JLab-specific failures—such as server errors, an API failure while the Logbooks site responds, or the Logbooks service failing while another JLab service responds—open a downtime period. Two consecutive JLab-specific failures are required, and the period is estimated from the first one. The next successful response closes the period and reports the estimated duration.
+
+Downtime and recovery alerts are excluded from Essential and Standard. Select Everything, or enable their individual System or Email controls in Advanced, to receive them. Repeated attributed failures show a consecutive-failure count so a persistent problem is easy to distinguish from a one-time error. **Copy diagnostics** copies a troubleshooting snapshot without email recipients, OAuth tokens, or passwords.
 
 Under **Settings**, **Test my setup** checks native system notifications, access to an enabled JLab logbook, the DTM page, every configured Shift Crew schedule, and a connected email sender. If email is connected and has receiving addresses, this explicit test sends one test message. Unconfigured features are shown as skipped instead of failed.
 

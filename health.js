@@ -84,6 +84,43 @@ function createDiagnosticSnapshot(state, manifest = {}) {
   };
 }
 
+function classifyLogbookAvailabilityFailure(error, diagnostics = {}) {
+  const message = String(error?.message || error || "Logbook request failed");
+  const code = String(error?.code || "");
+  const httpStatus = Number(error?.httpStatus || message.match(/HTTP\s+(\d{3})/i)?.[1] || 0);
+  if (code === "AUTH_REQUIRED" || /AUTH_REQUIRED|login required/i.test(message) || httpStatus === 401 || httpStatus === 403) {
+    return { outcome: "auth", reason: "JLab sign-in required" };
+  }
+  if (code === "RATE_LIMITED" || httpStatus === 429 || /rate limit/i.test(message)) {
+    return { outcome: "rate_limited", reason: "JLab rate limited this check" };
+  }
+  if (code === "SERVER_ERROR" || (httpStatus >= 500 && httpStatus <= 599)) {
+    return { outcome: "service_failure", reason: message };
+  }
+  if (code === "API_FORMAT_ERROR" || /unfamiliar response|response format|invalid JSON|unexpected token/i.test(message)) {
+    return { outcome: "api_error", reason: "JLab returned an unexpected API response" };
+  }
+  if (httpStatus >= 400 && httpStatus <= 499) {
+    return { outcome: "api_error", reason: `JLab returned HTTP ${httpStatus}` };
+  }
+  if (diagnostics.otherBookSucceeded === true) {
+    return { outcome: "service_failure", reason: "Other logbooks responded while this logbook request failed" };
+  }
+  if (diagnostics.logbooksReachable === true) {
+    return { outcome: "service_failure", reason: "The JLab logbook site responded but its API request failed" };
+  }
+  if (diagnostics.jlabReachable === true && diagnostics.logbooksReachable === false) {
+    return { outcome: "service_failure", reason: "Another JLab service responded, but the logbook service did not" };
+  }
+  if (diagnostics.online === false || diagnostics.internetReachable === false) {
+    return { outcome: "network_issue", reason: "Internet or VPN connectivity is unavailable" };
+  }
+  if (diagnostics.internetReachable === true && diagnostics.logbooksReachable === false) {
+    return { outcome: "jlab_path_issue", reason: "The JLab or VPN path is unreachable from this browser" };
+  }
+  return { outcome: "network_issue", reason: "The cause could not be separated from a local network or VPN problem" };
+}
+
 function normalizeLogbookDowntime(value, monitoredBooks = [], now = Date.now()) {
   const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const storedBooks = stored.books && typeof stored.books === "object" && !Array.isArray(stored.books)
@@ -112,7 +149,10 @@ function normalizeLogbookDowntime(value, monitoredBooks = [], now = Date.now()) 
 
 function normalizeLogbookDowntimeBook(value, book, now = Date.now()) {
   const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const status = ["unknown", "up", "suspected", "down", "login_required"].includes(stored.status)
+  const status = [
+    "unknown", "up", "suspected", "down", "login_required",
+    "rate_limited", "network_issue", "jlab_path_issue", "api_error"
+  ].includes(stored.status)
     ? stored.status
     : "unknown";
   const retentionStart = getJlabDayBounds(now).start - (LOGBOOK_DOWNTIME_RETENTION_DAYS - 1) * 24 * 60 * 60 * 1000;
@@ -173,9 +213,27 @@ function updateLogbookDowntime(value, book, outcome, at = Date.now(), error = ""
     return { state, transition };
   }
 
-  if (outcome !== "failure") return { state, transition: null };
+  const nonDowntimeStatuses = {
+    rate_limited: "rate_limited",
+    network_issue: "network_issue",
+    jlab_path_issue: "jlab_path_issue",
+    api_error: "api_error"
+  };
+  if (nonDowntimeStatuses[outcome]) {
+    closeOpenDowntimePeriod(item, checkedAt);
+    item.status = nonDowntimeStatuses[outcome];
+    item.consecutiveFailures = 0;
+    item.firstFailureAt = 0;
+    item.downSince = 0;
+    item.lastCheckAt = checkedAt;
+    if (outcome === "rate_limited" || outcome === "api_error") item.lastResponseAt = checkedAt;
+    item.lastError = String(error?.message || error || "Availability could not be confirmed");
+    return { state, transition: null };
+  }
+
+  if (outcome !== "service_failure" && outcome !== "failure") return { state, transition: null };
   item.lastCheckAt = checkedAt;
-  item.lastError = String(error?.message || error || "Logbook did not respond");
+  item.lastError = String(error?.message || error || "JLab logbook service did not respond");
   if (item.status === "down") {
     item.consecutiveFailures += 1;
     return { state, transition: null };
@@ -200,6 +258,12 @@ function updateLogbookDowntime(value, book, outcome, at = Date.now(), error = ""
     error: item.lastError
   };
   return { state, transition };
+}
+
+function closeOpenDowntimePeriod(item, checkedAt) {
+  if (item.status !== "down") return;
+  const openPeriod = [...item.periods].reverse().find((period) => period.end === 0);
+  if (openPeriod) openPeriod.end = checkedAt;
 }
 
 function pauseLogbookDowntime(value, slugs, at = Date.now()) {
