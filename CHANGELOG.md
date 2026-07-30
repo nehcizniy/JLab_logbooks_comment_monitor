@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.2.2
+
+- Excluded logbook downtime and recovery notifications from Essential and Standard alerts; they remain available in Everything and as individual Advanced controls.
+- Added layered availability diagnosis so internet/VPN, JLab-path, authentication, rate-limit, and API-format failures are shown but excluded from downtime totals, while repeated JLab-specific failures continue to open estimated downtime periods.
+
 ## 3.2.1
 
 - Moved the installation instructions to the top of the README so new users can find the Chrome setup steps immediately.

@@ -15,8 +15,11 @@ const MAX_HOUR_RANGE = 720;
 const MAX_DAY_RANGE = 30;
 const MAX_TIME_RANGE_RESULTS = 5000;
 const LOGBOOK_REQUEST_TIMEOUT_MILLISECONDS = 20 * 1000;
+const AVAILABILITY_PROBE_TIMEOUT_MILLISECONDS = 10 * 1000;
 const API_ROOT = "https://logbooks.jlab.org/api/elog/entries";
 const ENTRY_ROOT = "https://logbooks.jlab.org/entry/";
+const LOGBOOK_SITE_PROBE_URL = "https://logbooks.jlab.org/";
+const JLAB_NETWORK_PROBE_URL = "https://ace.jlab.org/dtm/open-events";
 const DEFAULT_BOOKS = [
   { name: "HCLOG", slug: "hclog", rangeType: DEFAULT_RANGE_TYPE, rangeValue: DEFAULT_ENTRY_LIMIT, rangeValues: defaultRangeValues() },
   { name: "HBLOG", slug: "hblog", rangeType: DEFAULT_RANGE_TYPE, rangeValue: DEFAULT_ENTRY_LIMIT, rangeValues: defaultRangeValues() },
@@ -83,7 +86,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   }
   updates.shiftCrewSchedules = normalizeShiftCrewSchedules(current.shiftCrewSchedules);
   if (!current.shiftCrewState || typeof current.shiftCrewState !== "object") updates.shiftCrewState = {};
-  updates.alertPreferences = normalizeAlertPreferences(current.alertPreferences);
+  updates.alertPreferences = migrateAlertPreferences(current.alertPreferences, current.settingsSchemaVersion);
   updates.quietHours = normalizeQuietHours(current.quietHours);
   if (!Number.isFinite(Number(current.notificationsSnoozedUntil))) updates.notificationsSnoozedUntil = 0;
   updates.healthState = normalizeHealthState(current.healthState);
@@ -258,7 +261,7 @@ async function ensureMonitorSettings() {
     "trackExtensionUpdates", "monitoredBooks", "logbookDowntime"
   ]);
   await chrome.storage.local.set({
-    alertPreferences: normalizeAlertPreferences(state.alertPreferences),
+    alertPreferences: migrateAlertPreferences(state.alertPreferences, state.settingsSchemaVersion),
     quietHours: normalizeQuietHours(state.quietHours),
     notificationsSnoozedUntil: Number.isFinite(Number(state.notificationsSnoozedUntil))
       ? Number(state.notificationsSnoozedUntil)
@@ -617,7 +620,13 @@ async function checkForComments() {
 
   try {
     const bookResults = await Promise.allSettled(activeBooks.map((book) => fetchBook(book)));
-    await recordLogbookAvailability(activeBooks, bookResults);
+    const availabilityDiagnostics = bookResults.some(
+      (result) => result.status === "rejected"
+        && classifyLogbookAvailabilityFailure(result.reason).outcome === "network_issue"
+    )
+      ? await diagnoseLogbookAvailability(bookResults)
+      : null;
+    await recordLogbookAvailability(activeBooks, bookResults, Date.now(), availabilityDiagnostics);
     const failedBook = bookResults.find((result) => result.status === "rejected");
     if (failedBook) throw failedBook.reason;
     const results = bookResults.map((result) => result.value);
@@ -954,12 +963,29 @@ async function fetchBook(book) {
   }, LOGBOOK_REQUEST_TIMEOUT_MILLISECONDS);
 
   if (response.status === 401 || response.status === 403) {
-    throw new Error("AUTH_REQUIRED");
+    throw createLogbookAvailabilityError("AUTH_REQUIRED", "AUTH_REQUIRED", response.status);
   }
-  if (!response.ok) throw new Error(`JLab returned HTTP ${response.status}`);
+  if (response.status === 429) {
+    throw createLogbookAvailabilityError("RATE_LIMITED", "JLab returned HTTP 429", response.status);
+  }
+  if (response.status >= 500) {
+    throw createLogbookAvailabilityError("SERVER_ERROR", `JLab returned HTTP ${response.status}`, response.status);
+  }
+  if (!response.ok) {
+    throw createLogbookAvailabilityError("API_ERROR", `JLab returned HTTP ${response.status}`, response.status);
+  }
 
-  const payload = await response.json();
-  return normalizeEntries(payload).map((entry) => ({ ...entry, book: book.name, bookSlug: book.slug }));
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw createLogbookAvailabilityError("API_FORMAT_ERROR", "JLab returned invalid JSON");
+  }
+  try {
+    return normalizeEntries(payload).map((entry) => ({ ...entry, book: book.name, bookSlug: book.slug }));
+  } catch (error) {
+    throw createLogbookAvailabilityError("API_FORMAT_ERROR", error?.message || "The JLab API returned an unfamiliar response format");
+  }
 }
 
 async function fetchEntryDetails(lognumber) {
@@ -1229,10 +1255,10 @@ async function showLogbookDowntimeNotification(transition) {
     id: `${DOWNTIME_NOTIFICATION_PREFIX}${book.slug || "logbooks"}:${transition.type}`,
     alertType: "logbookDowntime",
     priority: recovered ? "informational" : "urgent",
-    systemTitle: recovered ? `${book.name}: Available again` : `${book.name}: Not responding`,
+    systemTitle: recovered ? `${book.name}: Available again` : `${book.name}: Likely unavailable`,
     message: recovered
       ? `Estimated downtime: ${formatDowntimeDuration(transition.durationMs)}.${transition.loginRequired ? " The server responded, but JLab sign-in is required." : ""}`
-      : `Two consecutive checks failed. Downtime began around ${formatJlabClockTime(transition.start)}.`,
+      : `Two checks found JLab-specific failures. Estimated downtime began around ${formatJlabClockTime(transition.start)}.`,
     url,
     openButtonTitle: "Open logbook"
   });
@@ -1244,24 +1270,26 @@ function stableHash(value) {
   return Math.abs(hash).toString(36);
 }
 
-async function recordLogbookAvailability(activeBooks, settledResults, checkedAt = Date.now()) {
+async function recordLogbookAvailability(activeBooks, settledResults, checkedAt = Date.now(), diagnostics = null) {
   return queueLogbookDowntimeWrite(async () => {
     const { logbookDowntime } = await chrome.storage.local.get("logbookDowntime");
     let next = normalizeLogbookDowntime(logbookDowntime, activeBooks, checkedAt);
     const transitions = [];
+    const otherBookSucceeded = settledResults.some((result) => result?.status === "fulfilled");
     for (let index = 0; index < activeBooks.length; index += 1) {
       const result = settledResults[index];
-      const outcome = result?.status === "fulfilled"
-        ? "success"
-        : isAuthenticationFailure(result?.reason)
-          ? "auth"
-          : "failure";
+      const classification = result?.status === "fulfilled"
+        ? { outcome: "success", reason: "" }
+        : classifyLogbookAvailabilityFailure(result?.reason, {
+            ...(diagnostics || {}),
+            otherBookSucceeded
+          });
       const updated = updateLogbookDowntime(
         next,
         activeBooks[index],
-        outcome,
+        classification.outcome,
         checkedAt,
-        result?.status === "rejected" ? result.reason : ""
+        classification.reason || (result?.status === "rejected" ? result.reason : "")
       );
       next = updated.state;
       if (updated.transition) transitions.push(updated.transition);
@@ -1274,6 +1302,56 @@ async function recordLogbookAvailability(activeBooks, settledResults, checkedAt 
     }
     return { state: next, transitions };
   });
+}
+
+async function diagnoseLogbookAvailability(settledResults) {
+  const otherBookSucceeded = settledResults.some((result) => result?.status === "fulfilled");
+  const online = typeof navigator === "undefined" || typeof navigator.onLine !== "boolean"
+    ? null
+    : navigator.onLine;
+  if (otherBookSucceeded) {
+    return {
+      online,
+      otherBookSucceeded: true,
+      logbooksReachable: true,
+      jlabReachable: true,
+      internetReachable: true
+    };
+  }
+  if (online === false) {
+    return {
+      online: false,
+      otherBookSucceeded: false,
+      logbooksReachable: false,
+      jlabReachable: false,
+      internetReachable: false
+    };
+  }
+  const [logbooksReachable, jlabReachable, internetReachable] = await Promise.all([
+    probeReachability(`${LOGBOOK_SITE_PROBE_URL}?availability_probe=${Date.now()}`, { credentials: "include" }),
+    probeReachability(`${JLAB_NETWORK_PROBE_URL}?availability_probe=${Date.now()}`, { credentials: "include" }),
+    probeReachability(`${EXTENSION_RELEASE_API_URL}?availability_probe=${Date.now()}`, { credentials: "omit" })
+  ]);
+  return {
+    online,
+    otherBookSucceeded: false,
+    logbooksReachable,
+    jlabReachable,
+    internetReachable
+  };
+}
+
+async function probeReachability(url, options = {}) {
+  try {
+    await fetchWithTimeout(url, {
+      cache: "no-store",
+      redirect: "follow",
+      ...options
+    }, AVAILABILITY_PROBE_TIMEOUT_MILLISECONDS);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function pauseLogbookDowntimeBooks(slugs, pausedAt = Date.now()) {
@@ -1290,8 +1368,11 @@ function queueLogbookDowntimeWrite(work) {
   return logbookDowntimeWriteQueue;
 }
 
-function isAuthenticationFailure(error) {
-  return /AUTH_REQUIRED|login required|HTTP (?:401|403)/i.test(String(error?.message || error || ""));
+function createLogbookAvailabilityError(code, message, httpStatus = 0) {
+  const error = new Error(message);
+  error.code = code;
+  if (httpStatus) error.httpStatus = Number(httpStatus);
+  return error;
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMilliseconds = LOGBOOK_REQUEST_TIMEOUT_MILLISECONDS) {

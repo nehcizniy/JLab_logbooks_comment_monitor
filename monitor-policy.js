@@ -1,4 +1,4 @@
-const MONITOR_SETTINGS_SCHEMA_VERSION = 7;
+const MONITOR_SETTINGS_SCHEMA_VERSION = 8;
 const MONITOR_INTERFACE_MODES = ["simple", "large", "advanced", "large-advanced"];
 const MONITOR_THEME_MODES = ["light", "dark"];
 const MONITOR_SHIFT_CREW_HALLS = ["hallA", "hallB", "hallC", "hallD"];
@@ -33,10 +33,31 @@ function defaultAlertPreferences() {
 function alertPreferencesForPreset(value) {
   const preset = MONITOR_ALERT_PRESETS.includes(value) ? value : "standard";
   const enabledTypes = preset === "essential"
-    ? new Set(["watchedNames", "dtmEvents", "logbookDowntime"])
+    ? new Set(["watchedNames", "dtmEvents"])
     : preset === "standard"
-      ? new Set(["comments", "watchedNames", "shiftSummaryEdits", "dtmEvents", "logbookDowntime"])
+      ? new Set(["comments", "watchedNames", "shiftSummaryEdits", "dtmEvents"])
       : new Set(MONITOR_ALERT_TYPES.map(({ key }) => key));
+  return Object.fromEntries(MONITOR_ALERT_TYPES.map(({ key }) => [
+    key,
+    { system: enabledTypes.has(key), email: enabledTypes.has(key) }
+  ]));
+}
+
+function migrateAlertPreferences(value, settingsSchemaVersion) {
+  const normalized = normalizeAlertPreferences(value);
+  if (Number(settingsSchemaVersion || 0) >= 8) return normalized;
+  for (const preset of ["essential", "standard"]) {
+    if (JSON.stringify(normalized) === JSON.stringify(legacyAlertPreferencesForPreset(preset))) {
+      return alertPreferencesForPreset(preset);
+    }
+  }
+  return normalized;
+}
+
+function legacyAlertPreferencesForPreset(value) {
+  const enabledTypes = value === "essential"
+    ? new Set(["watchedNames", "dtmEvents", "logbookDowntime"])
+    : new Set(["comments", "watchedNames", "shiftSummaryEdits", "dtmEvents", "logbookDowntime"]);
   return Object.fromEntries(MONITOR_ALERT_TYPES.map(({ key }) => [
     key,
     { system: enabledTypes.has(key), email: enabledTypes.has(key) }
@@ -145,10 +166,13 @@ function actionableErrorMessage(value, source = "monitor") {
       ? "The email connection has expired. Open Advanced → Alerts, reconnect the sender, then try again."
       : "JLab sign-in is needed. Open a JLab logbook, sign in, then return here and select Check now.";
   }
+  if (/HTTP 429|rate limit/i.test(raw)) {
+    return "JLab is temporarily rate limiting checks. Wait a few minutes, then select Check now.";
+  }
   if (/failed to fetch|networkerror|network request|internet|offline/i.test(raw)) {
     return "The extension could not reach JLab. Check your network or VPN connection, then select Check now.";
   }
-  if (/unfamiliar response|response format/i.test(raw)) {
+  if (/unfamiliar response|response format|invalid JSON|unexpected API response/i.test(raw)) {
     return "JLab returned an unexpected page format. Select Check now once more; if it continues, copy diagnostics from Advanced → Monitoring health.";
   }
   if (source === "shiftCrew") {
