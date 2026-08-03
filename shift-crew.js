@@ -403,9 +403,13 @@ function parseHallDGluexScheduleHtml(html, now = Date.now()) {
 }
 
 function findDatedShiftTableRow(html, hallBDate) {
-  const escapedDate = String(hallBDate || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const normalizedDate = String(hallBDate || "").trim();
+  const dateParts = normalizedDate.match(/^0?([1-9]|[12]\d|3[01])-([A-Za-z]{3})-(\d{4})$/);
+  const flexibleDate = dateParts
+    ? `${Number(dateParts[1]) < 10 ? "0?" : ""}${Number(dateParts[1])}-${dateParts[2]}-${dateParts[3]}`
+    : normalizedDate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const dateCellPattern = new RegExp(
-    `<td\\b[^>]*\\bclass\\s*=\\s*["']tdate["'][^>]*>\\s*${escapedDate}`,
+    `<td\\b[^>]*\\bclass\\s*=\\s*["']tdate["'][^>]*>\\s*${flexibleDate}(?=\\s|<)`,
     "i"
   );
   const marker = dateCellPattern.exec(html);

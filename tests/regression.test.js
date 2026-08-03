@@ -12,6 +12,7 @@ for (const file of ["monitor-policy.js", "health.js", "jlab-parsers.js", "extens
 }
 const fixture = (name) => fs.readFileSync(path.join(__dirname, "fixtures", name), "utf8");
 const easternHour = (hour) => Date.UTC(2026, 6, 17, hour + 4, 0, 0);
+const easternAugustHour = (hour) => Date.UTC(2026, 7, 3, hour + 4, 0, 0);
 const workers = (entry) => Object.fromEntries(entry.workers.map((worker) => [worker.role, worker.name]));
 
 test("accepts documented and legacy JLab API response wrappers", () => {
@@ -174,6 +175,22 @@ test("parses MIS, Hall B, and Hall D schedule boundaries", () => {
   assert.deepEqual(workers(hallD.hourlyCrew[20]), { Leader: "Leader Evening", Worker: "Tonight Worker" });
 });
 
+test("parses unpadded single-digit dates from Hall B and Hall D schedules", () => {
+  const hallBHtml = fixture("hallb-shifts.html")
+    .replace("16-Jul-2026", "2-Aug-2026")
+    .replace("17-Jul-2026", "3-Aug-2026");
+  const hallB = context.parseShiftScheduleHtml(hallBHtml, easternAugustHour(1));
+  assert.equal(hallB.status, "ok");
+  assert.deepEqual(workers(hallB.hourlyCrew[1]), { Expert: "Expert Owl", Worker: "Previous Night Worker" });
+
+  const hallDHtml = fixture("halld-shifts.html")
+    .replace("16-Jul-2026", "2-Aug-2026")
+    .replace("17-Jul-2026", "3-Aug-2026");
+  const hallD = context.parseShiftScheduleHtml(hallDHtml, easternAugustHour(1));
+  assert.equal(hallD.status, "ok");
+  assert.deepEqual(workers(hallD.hourlyCrew[20]), { Leader: "Leader Evening", Worker: "Tonight Worker" });
+});
+
 test("confirms, closes, and totals daily logbook downtime", () => {
   const book = { name: "HCLOG", slug: "hclog" };
   const firstFailureAt = context.jlabLocalDateTimeToTimestamp(2026, 7, 17, 10, 0);
@@ -262,7 +279,7 @@ test("compares extension releases and selects the packaged ZIP", () => {
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "3.2.2");
+  assert.equal(manifest.version, "3.2.3");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
