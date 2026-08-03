@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.2.3
+
+- Fixed Hall B and Hall D shift-schedule matching on days 1–9 when their pages omit the leading zero from the date.
+
 ## 3.2.2
 
 - Excluded logbook downtime and recovery notifications from Essential and Standard alerts; they remain available in Everything and as individual Advanced controls.
