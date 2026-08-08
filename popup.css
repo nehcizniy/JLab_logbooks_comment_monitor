@@ -14,7 +14,7 @@ body {
   background: linear-gradient(160deg, #f9fbff 0%, #eef3fb 100%);
 }
 
-main { padding: 20px; }
+main { width: 350px; padding: 20px; }
 
 header {
   display: flex;
@@ -98,7 +98,7 @@ body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-cr
 body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-body { display: grid !important; }
 body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-alert-toggle { display: none !important; }
 body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-tabs { display: none !important; }
-body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-hover-card { position: static; display: grid; width: auto; margin-top: 8px; padding: 8px 9px; border-color: #dce5ef; box-shadow: none; }
+body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-simple-card { display: grid; width: auto; margin-top: 8px; padding: 8px 9px; border: 1px solid #dce5ef; border-radius: 10px; background: #f8fbff; box-shadow: none; }
 body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-simple-list { display: grid; }
 body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-crew-advanced-preview { display: none; }
 
@@ -155,13 +155,18 @@ body:is([data-interface-mode="simple"], [data-interface-mode="large"]) .shift-cr
 .expand-alarms { width: 100%; min-height: 29px; margin-top: 7px; padding: 0 8px; font-size: 9px; }
 .shift-crew-card { position: relative; z-index: 4; margin-top: 10px; padding: 11px 12px; border: 1px solid #d7dfeb; border-radius: 11px; background: #fff; overflow: visible; }
 .shift-crew-summary { position: relative; }
-.shift-crew-hover-card { display: none; position: absolute; z-index: 20; width: 268px; top: calc(100% + 7px); right: 0; padding: 11px 12px; border: 1px solid #9fb4cd; border-radius: 10px; background: #f8fbff; box-shadow: 0 12px 28px #17203335; color: #33445e; cursor: default; }
-.shift-crew-card:not([open]) > .shift-crew-summary:hover .shift-crew-hover-card,
-.shift-crew-card:not([open]) > .shift-crew-summary:focus-visible .shift-crew-hover-card { display: grid; gap: 5px; }
-.shift-crew-hover-card > strong { color: #274d78; font-size: 11px; }
-.shift-crew-hover-card > small { margin-top: -3px; color: #7a8596; font-size: 8px; }
+.shift-crew-simple-card { display: none; gap: 5px; color: #33445e; }
+.shift-crew-simple-card > strong { color: #274d78; font-size: 11px; }
+.shift-crew-simple-card > small { margin-top: -3px; color: #7a8596; font-size: 8px; }
 .shift-crew-simple-list { display: none; gap: 5px; }
 .shift-crew-simple-empty { color: #7a8596; font-size: 8px; line-height: 1.4; }
+.shift-crew-hover-card { position: absolute; z-index: 20; top: calc(100% + 7px); right: 0; display: grid; width: 268px; max-height: 190px; gap: 5px; padding: 11px 12px; overflow-y: auto; border: 1px solid #9fb4cd; border-radius: 10px; background: #f8fbff; box-shadow: 0 12px 28px #17203335; color: #33445e; cursor: default; }
+.shift-crew-hover-card[hidden] { display: none; }
+.shift-crew-preview-label { color: #6c7f97; font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.shift-crew-hover-card > a { color: #52657c; font-size: 11px; font-weight: 800; text-decoration: none; }
+.shift-crew-hover-card > a[href] { color: #245f9e; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.shift-crew-hover-card > strong { color: #33445e; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.shift-crew-hover-card > small { color: #738095; font-size: 8px; line-height: 1.35; overflow-wrap: anywhere; }
 .shift-crew-hover-row { display: grid; grid-template-columns: 43px minmax(0, 1fr); gap: 6px; padding-top: 5px; border-top: 1px solid #e2e9f2; font-size: 9px; line-height: 1.35; }
 .shift-crew-hover-row a,
 .shift-crew-input-row > a { color: #48688d; font-weight: 750; text-decoration: none; }
@@ -384,7 +389,7 @@ button.primary:hover { background: #1e3e63; }
 
 /* Both large interfaces increase readability and touch targets. */
 body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) { width: 480px; }
-body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) main { padding: 24px; }
+body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) main { width: 480px; padding: 24px; }
 body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) header { margin-bottom: 16px; }
 body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) h1 { font-size: 30px; }
 body:is([data-interface-mode="large"], [data-interface-mode="large-advanced"]) h2 { font-size: 23px !important; }
@@ -454,7 +459,7 @@ body[data-interface-mode="large-advanced"] .book-range-control select { width: 1
 :root[data-theme="dark"] :is(
   .popup-tabs, .shift-crew-tabs, .extension-update-toggle, .health-row,
   .downtime-book,
-  .shift-crew-hover-card, .dtm-status-row, .email-optional-note, .email-provider-settings,
+  .shift-crew-simple-card, .shift-crew-hover-card, .dtm-status-row, .email-optional-note, .email-provider-settings,
   .book-diagnostics div, .setup-test-result, .setup-wizard-heading > span,
   .setup-wizard-test
 ) { border-color: #3b4f67; background: #203047; color: #d9e4f1; }
@@ -480,7 +485,7 @@ body[data-interface-mode="large-advanced"] .book-range-control select { width: 1
 
 :root[data-theme="dark"] :is(
   .interface-mode-label, .help-panel strong,
-  .extension-update-toggle strong, .health-row strong, .shift-crew-hover-card > strong,
+  .extension-update-toggle strong, .health-row strong, .shift-crew-simple-card > strong,
   .fold-summary-copy strong, .shift-summary-list h3, .dtm-card-heading strong,
   .dtm-status-row strong, .dtm-behavior-note strong, .alert-policy-heading strong,
   .recommended-reset-row button, .dtm-reminder-control p, .email-enabled-row strong,
@@ -492,7 +497,7 @@ body[data-interface-mode="large-advanced"] .book-range-control select { width: 1
   .extension-update-body > small,
   .extension-update-toggle small, .extension-update-status, .health-row span,
   .health-copy-status, .recent-alarm-item span, .recent-alarms-empty,
-  .shift-crew-hover-card > small, .shift-crew-hover-row span, .shift-crew-body > p,
+  .shift-crew-simple-card > small, .shift-crew-hover-row span, .shift-crew-body > p,
   .shift-crew-simple-empty,
   .shift-crew-input-row small, .shift-alert-toggle, .shift-crew-status,
   .fold-summary-copy small, .shift-summary-edit-toggle, .shift-summary-empty,
@@ -507,6 +512,11 @@ body[data-interface-mode="large-advanced"] .book-range-control select { width: 1
   .footnote, .settings-backup-body p, .settings-backup-status,
   .setup-test-card > span, .setup-test-result, .setup-wizard-step, .setup-wizard-note
 ) { color: #aebdd0; }
+
+:root[data-theme="dark"] .shift-crew-preview-label { color: #91a7be; }
+:root[data-theme="dark"] .shift-crew-hover-card > a { color: #8fc7ff; }
+:root[data-theme="dark"] .shift-crew-hover-card > strong { color: #dce6f2; }
+:root[data-theme="dark"] .shift-crew-hover-card > small { color: #aebed0; }
 
 :root[data-theme="dark"] :is(
   .shift-crew-hover-row, .alert-advanced, .alert-policy-row, .quiet-hours-row,

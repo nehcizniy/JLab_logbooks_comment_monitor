@@ -100,8 +100,10 @@ const SHIFT_CREW_LINKS = {
   hallD: document.querySelector("#shift-crew-link-hall-d")
 };
 const shiftCrewSimpleList = document.querySelector("#shift-crew-simple-list");
-const shiftCrewHoverCurrent = document.querySelector("#shift-crew-hover-current");
+const shiftCrewHoverCard = document.querySelector("#shift-crew-hover-card");
 const shiftCrewHoverLink = document.querySelector("#shift-crew-hover-link");
+const shiftCrewHoverCurrent = document.querySelector("#shift-crew-hover-current");
+const shiftCrewHoverDetail = document.querySelector("#shift-crew-hover-detail");
 const SHIFT_CREW_ALERT_INPUTS = {
   hallA: document.querySelector("#shift-crew-alert-hall-a"),
   hallB: document.querySelector("#shift-crew-alert-hall-b"),
@@ -138,6 +140,7 @@ let recentAlarmLimit = 5;
 let emailConfigLoaded = false;
 let shiftCrewConfigLoaded = false;
 let previewShiftCrewHall = "hallA";
+let shiftCrewPreviewHideTimer = 0;
 let lastShiftCrewRenderState = null;
 let currentInterfaceMode = "simple";
 let currentSetupWizardStep = 0;
@@ -301,8 +304,10 @@ for (const button of shiftCrewTabButtons) {
     });
     await render();
   });
-  button.addEventListener("mouseenter", () => previewShiftCrew(button.dataset.shiftCrewTab));
-  button.addEventListener("focus", () => previewShiftCrew(button.dataset.shiftCrewTab));
+  button.addEventListener("mouseenter", () => showShiftCrewPreview(button.dataset.shiftCrewTab, button));
+  button.addEventListener("mouseleave", scheduleShiftCrewPreviewHide);
+  button.addEventListener("focus", () => showShiftCrewPreview(button.dataset.shiftCrewTab, button));
+  button.addEventListener("blur", scheduleShiftCrewPreviewHide);
   button.addEventListener("keydown", async (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -315,11 +320,16 @@ for (const button of shiftCrewTabButtons) {
         : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + SHIFT_CREW_HALLS.length) % SHIFT_CREW_HALLS.length;
     const nextButton = shiftCrewTabButtons.find((item) => item.dataset.shiftCrewTab === SHIFT_CREW_HALLS[nextIndex]);
     previewShiftCrewHall = SHIFT_CREW_HALLS[nextIndex];
-    renderAdvancedShiftCrewPreview(lastShiftCrewRenderState);
     nextButton?.focus();
   });
 }
+shiftCrewHoverCard.addEventListener("mouseenter", cancelShiftCrewPreviewHide);
+shiftCrewHoverCard.addEventListener("mouseleave", scheduleShiftCrewPreviewHide);
+shiftCrewHoverCard.addEventListener("click", (event) => event.stopPropagation());
 shiftCrewHoverLink.addEventListener("click", (event) => event.stopPropagation());
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") hideShiftCrewPreview();
+});
 for (const input of Object.values(SHIFT_CREW_ALERT_INPUTS)) {
   input.addEventListener("change", async () => {
     const shiftCrewAlertEnabledHalls = SHIFT_CREW_HALLS.filter((hall) => SHIFT_CREW_ALERT_INPUTS[hall].checked);
@@ -460,6 +470,7 @@ async function initializePopup() {
 }
 
 function setActivePopupView(view, persist = true) {
+  hideShiftCrewPreview();
   activePopupView = POPUP_VIEWS.includes(view) ? view : "overview";
   document.body.dataset.activePopupView = activePopupView;
   for (const button of popupTabButtons) {
@@ -580,6 +591,7 @@ async function setInterfaceMode(value) {
   const interfaceMode = normalizeInterfaceMode(value);
   if (interfaceMode === currentInterfaceMode) return;
   currentInterfaceMode = interfaceMode;
+  hideShiftCrewPreview();
   document.body.dataset.interfaceMode = interfaceMode;
   if (isFocusedInterfaceMode(interfaceMode) && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   await chrome.storage.local.set({ interfaceMode });
@@ -589,6 +601,7 @@ async function setInterfaceMode(value) {
 function renderInterfaceMode(state) {
   const interfaceMode = normalizeInterfaceMode(state.interfaceMode);
   currentInterfaceMode = interfaceMode;
+  if (!isAdvancedInterfaceMode(interfaceMode)) hideShiftCrewPreview();
   document.body.dataset.interfaceMode = interfaceMode;
   if (isFocusedInterfaceMode(interfaceMode) && !SIMPLE_POPUP_VIEWS.includes(activePopupView)) setActivePopupView("overview");
   interfaceModeSelect.value = interfaceMode;
@@ -1362,7 +1375,6 @@ function renderShiftCrewControls(state) {
     button.setAttribute("aria-pressed", String(selected));
     button.title = `${selected ? "Remove" : "Add"} ${SHIFT_CREW_LABELS[button.dataset.shiftCrewTab]} ${selected ? "from" : "to"} the Simple-mode list`;
   }
-  renderAdvancedShiftCrewPreview(state, schedules);
   renderSimpleShiftCrewList(state, schedules, simpleHalls);
 
   const configuredCount = Object.values(schedules).filter(Boolean).length;
@@ -1387,16 +1399,43 @@ function renderShiftCrewControls(state) {
 
 function previewShiftCrew(value) {
   previewShiftCrewHall = SHIFT_CREW_HALLS.includes(value) ? value : "hallA";
-  renderAdvancedShiftCrewPreview(lastShiftCrewRenderState);
 }
 
-function renderAdvancedShiftCrewPreview(state, schedules = normalizeShiftCrewSchedulesForPopup(state?.shiftCrewSchedules)) {
-  const hall = SHIFT_CREW_HALLS.includes(previewShiftCrewHall) ? previewShiftCrewHall : "hallA";
-  const display = formatCurrentShiftCrew(schedules[hall], state?.shiftCrewState?.[hall]);
-  shiftCrewHoverLink.textContent = SHIFT_CREW_LABELS[hall];
-  configureShiftCrewLink(shiftCrewHoverLink, schedules[hall]);
+function isAdvancedInterfaceMode(value = currentInterfaceMode) {
+  return value === "advanced" || value === "large-advanced";
+}
+
+function showShiftCrewPreview(value) {
+  if (!isAdvancedInterfaceMode()) return;
+  cancelShiftCrewPreviewHide();
+  previewShiftCrew(value);
+  const schedules = normalizeShiftCrewSchedulesForPopup(lastShiftCrewRenderState?.shiftCrewSchedules);
+  const display = formatCurrentShiftCrew(
+    schedules[previewShiftCrewHall],
+    lastShiftCrewRenderState?.shiftCrewState?.[previewShiftCrewHall]
+  );
+  shiftCrewHoverLink.textContent = SHIFT_CREW_LABELS[previewShiftCrewHall];
+  configureShiftCrewLink(shiftCrewHoverLink, schedules[previewShiftCrewHall]);
   shiftCrewHoverCurrent.textContent = display.text;
   shiftCrewHoverCurrent.title = display.title;
+  shiftCrewHoverDetail.textContent = display.title || "JLab local time";
+  shiftCrewHoverCard.hidden = false;
+}
+
+function cancelShiftCrewPreviewHide() {
+  if (!shiftCrewPreviewHideTimer) return;
+  clearTimeout(shiftCrewPreviewHideTimer);
+  shiftCrewPreviewHideTimer = 0;
+}
+
+function scheduleShiftCrewPreviewHide() {
+  cancelShiftCrewPreviewHide();
+  shiftCrewPreviewHideTimer = setTimeout(hideShiftCrewPreview, 350);
+}
+
+function hideShiftCrewPreview() {
+  cancelShiftCrewPreviewHide();
+  shiftCrewHoverCard.hidden = true;
 }
 
 function renderSimpleShiftCrewList(state, schedules, halls) {

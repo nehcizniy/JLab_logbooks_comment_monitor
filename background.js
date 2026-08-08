@@ -1,4 +1,4 @@
-importScripts("monitor-policy.js", "health.js", "jlab-parsers.js", "extension-updates.js", "email.js", "shift-crew.js");
+importScripts("monitor-policy.js", "health.js", "jlab-parsers.js", "state-limits.js", "extension-updates.js", "email.js", "shift-crew.js");
 
 const CHECK_ALARM = "jlab-comment-check";
 const DTM_CHECK_ALARM = "jlab-dtm-check";
@@ -37,6 +37,7 @@ const COMMENT_CURSOR_SEED = 58417;
 const MAX_ALERT_HISTORY = 20;
 const COMMENT_RECOVERY_INTERVAL_MILLISECONDS = 24 * 60 * 60 * 1000;
 let logbookDowntimeWriteQueue = Promise.resolve();
+let pendingAlertWriteQueue = Promise.resolve();
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   // Updates must only add or migrate values. Never clear extension storage here:
@@ -47,7 +48,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "shiftSummaryFingerprints", "alertHistory", "emailConfig", "shiftCrewSchedules", "shiftCrewState",
     "alertPreferences", "quietHours", "notificationsSnoozedUntil", "healthState", "settingsSchemaVersion",
     "shiftCrewAlertEnabledHalls", "simpleShiftCrewHalls", "interfaceMode", "themeMode", "onboardingCompleted", "extensionUpdateState",
-    "trackExtensionUpdates", "logbookDowntime"
+    "trackExtensionUpdates", "logbookDowntime", "entryHighWatermarks"
   ]);
   const updates = {};
   if (typeof current.enabled !== "boolean") updates.enabled = true;
@@ -62,6 +63,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     updates.dtmIntervalMinutes = DEFAULT_DTM_CHECK_INTERVAL_MINUTES;
   }
   if (!current.commentCounts) updates.commentCounts = {};
+  updates.entryHighWatermarks = normalizeEntryHighWatermarks(
+    current.entryHighWatermarks,
+    current.commentCounts,
+    updates.enabledBooks
+  );
   if (!Array.isArray(current.watchedAuthors)) updates.watchedAuthors = [];
   if (!current.pageEventStates) updates.pageEventStates = {};
   if (!current.dtmEventState) updates.dtmEventState = migrateDtmEventState(current.pageEventStates);
@@ -107,8 +113,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (Object.keys(updates).length) await chrome.storage.local.set(updates);
   await ensureMonitorSettings();
   await Promise.all([syncAlarm(), syncDtmAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
-  const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
-  await updateAlertBadge(pendingAlerts);
+  await reconcilePendingAlerts();
   await Promise.all([
     checkForComments(),
     checkDtmEvents(),
@@ -120,8 +125,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 chrome.runtime.onStartup.addListener(async () => {
   await ensureMonitorSettings();
   await Promise.all([syncAlarm(), syncDtmAlarm(), syncShiftCrewAlarm(), syncExtensionUpdateAlarm()]);
-  const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
-  await updateAlertBadge(pendingAlerts);
+  await reconcilePendingAlerts();
   const { enabled = true } = await chrome.storage.local.get("enabled");
   await Promise.all([
     enabled ? checkForComments() : Promise.resolve(),
@@ -306,6 +310,13 @@ chrome.notifications.onClicked.addListener((notificationId) => {
   if (isMonitorNotification(notificationId)) openAlert(notificationId);
 });
 
+chrome.notifications.onClosed.addListener((notificationId) => {
+  if (!isMonitorNotification(notificationId) && !isTestNotification(notificationId)) return;
+  removePendingAlertRecord(notificationId).catch((error) => {
+    console.error("Could not remove dismissed notification", error);
+  });
+});
+
 async function syncAlarm() {
   const { enabled = true, monitoredBooks, enabledBooks, intervalMinutes = DEFAULT_CHECK_INTERVAL_MINUTES } = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "intervalMinutes"
@@ -406,9 +417,7 @@ async function checkExtensionUpdate(options = {}) {
 
 async function showExtensionUpdateNotification(state) {
   const notificationId = createNotificationInstanceId(`${UPDATE_NOTIFICATION_PREFIX}${state.latestVersion}`);
-  const storage = await chrome.storage.local.get("pendingAlerts");
-  const pendingAlerts = storage.pendingAlerts || {};
-  pendingAlerts[notificationId] = {
+  const alert = {
     id: notificationId,
     baseId: `${UPDATE_NOTIFICATION_PREFIX}${state.latestVersion}`,
     alertType: "extensionUpdate",
@@ -418,21 +427,23 @@ async function showExtensionUpdateNotification(state) {
     updateVersion: state.latestVersion,
     createdAt: Date.now()
   };
-  await chrome.storage.local.set({
-    pendingAlerts,
-    extensionUpdateLastNotifiedVersion: state.latestVersion
-  });
-  await updateAlertBadge(pendingAlerts);
-  await chrome.notifications.create(notificationId, {
-    type: "basic",
-    iconUrl: "icon.png",
-    title: `JLab monitor ${state.latestVersion} is available`,
-    message: `You have ${state.currentVersion}. Update now or keep the current version.`,
-    contextMessage: "Extension update",
-    requireInteraction: true,
-    priority: 1,
-    buttons: [{ title: "Update guide" }, { title: "Dismiss" }]
-  });
+  await storePendingAlert(alert);
+  try {
+    await chrome.notifications.create(notificationId, {
+      type: "basic",
+      iconUrl: "icon.png",
+      title: `JLab monitor ${state.latestVersion} is available`,
+      message: `You have ${state.currentVersion}. Update now or keep the current version.`,
+      contextMessage: "Extension update",
+      requireInteraction: true,
+      priority: 1,
+      buttons: [{ title: "Update guide" }, { title: "Dismiss" }]
+    });
+    await chrome.storage.local.set({ extensionUpdateLastNotifiedVersion: state.latestVersion });
+  } catch (error) {
+    await removePendingAlertRecord(notificationId);
+    throw error;
+  }
 }
 
 async function dismissExtensionUpdateAlert(id) {
@@ -453,11 +464,9 @@ async function clearExtensionUpdateNotifications() {
       .filter((id) => isUpdateNotification(id))
       .map((id) => chrome.notifications.clear(id))
   );
-  const pendingAlerts = Object.fromEntries(
-    Object.entries(storage.pendingAlerts || {}).filter(([id]) => !isUpdateNotification(id))
+  await removePendingAlertRecords(
+    Object.keys(storage.pendingAlerts || {}).filter((id) => isUpdateNotification(id))
   );
-  await chrome.storage.local.set({ pendingAlerts });
-  await updateAlertBadge(pendingAlerts);
 }
 
 async function handleEnabledBooksChange(change) {
@@ -469,15 +478,26 @@ async function handleEnabledBooksChange(change) {
   const updates = {};
 
   if (disabledBooks.length) {
-    const { commentCounts = {}, shiftSummaryFingerprints = {} } = await chrome.storage.local.get([
-      "commentCounts", "shiftSummaryFingerprints"
+    const {
+      commentCounts = {},
+      renderedCommentCounts = {},
+      shiftSummaryFingerprints = {},
+      entryHighWatermarks = {}
+    } = await chrome.storage.local.get([
+      "commentCounts", "renderedCommentCounts", "shiftSummaryFingerprints", "entryHighWatermarks"
     ]);
     const nextCounts = Object.fromEntries(
       Object.entries(commentCounts).filter(([key]) => !disabledBooks.some((slug) => key.startsWith(`${slug}:`)))
     );
     updates.commentCounts = nextCounts;
+    updates.renderedCommentCounts = Object.fromEntries(
+      Object.entries(renderedCommentCounts).filter(([key]) => !disabledBooks.some((slug) => key.startsWith(`${slug}:`)))
+    );
     updates.shiftSummaryFingerprints = Object.fromEntries(
       Object.entries(shiftSummaryFingerprints).filter(([slug]) => !disabledBooks.includes(slug))
+    );
+    updates.entryHighWatermarks = Object.fromEntries(
+      Object.entries(entryHighWatermarks).filter(([slug]) => !disabledBooks.includes(slug))
     );
   }
   if (!currentBooks.size) updates.commentCursorInitialized = false;
@@ -581,12 +601,13 @@ async function checkForComments() {
     commentRecoveryInitialized = false,
     lastCommentRecoveryScan = 0,
     shiftSummaryEditEnabledBooks,
-    shiftSummaryFingerprints = {}
+    shiftSummaryFingerprints = {},
+    entryHighWatermarks = {}
   } = await chrome.storage.local.get([
     "enabled", "monitoredBooks", "enabledBooks", "commentCounts", "initialized", "watchedAuthors",
     "renderedCommentCounts", "renderedCommentsInitialized", "seenCommentIds", "commentIdsInitialized",
     "commentCursor", "commentCursorInitialized", "commentRecoveryInitialized", "lastCommentRecoveryScan",
-    "shiftSummaryEditEnabledBooks", "shiftSummaryFingerprints"
+    "shiftSummaryEditEnabledBooks", "shiftSummaryFingerprints", "entryHighWatermarks"
   ]);
   if (!enabled) return;
   const books = normalizeMonitoredBooks(monitoredBooks);
@@ -609,6 +630,9 @@ async function checkForComments() {
       latestShiftSummary: null,
       shiftSummariesByBook: {},
       shiftSummaryFingerprints: {},
+      commentCounts: {},
+      renderedCommentCounts: {},
+      entryHighWatermarks: {},
       shiftSummaryEditError: "",
       lastDetectedEvents: 0,
       bookDiagnostics: {}
@@ -655,28 +679,27 @@ async function checkForComments() {
     const shiftEditEntriesByBook = Object.fromEntries(
       Object.entries(shiftSummaryEntriesByBook).filter(([bookSlug]) => shiftEditEnabledBookSlugs.has(bookSlug))
     );
-    const nextCounts = Object.fromEntries(
-      Object.entries(commentCounts).filter(([key]) => activeBooks.some((book) => key.startsWith(`${book.slug}:`)))
+    const activeBookSlugs = activeBooks.map((book) => book.slug);
+    const previousHighWatermarks = normalizeEntryHighWatermarks(
+      entryHighWatermarks,
+      commentCounts,
+      activeBookSlugs
     );
-    const nextRenderedCommentCounts = { ...renderedCommentCounts };
+    const nextHighWatermarks = advanceEntryHighWatermarks(previousHighWatermarks, entries, activeBookSlugs);
+    const nextCounts = currentEntryCommentCounts(entries);
+    const nextRenderedCommentCounts = pruneEntryCountMap(renderedCommentCounts, entries);
     const nextSeenCommentIds = { ...seenCommentIds };
     const commentAlerts = [];
     const watchedNameAlerts = [];
     const watchedNameSet = new Set(watchedAuthors.map(normalizeAuthor).filter(Boolean));
-    const baselineBooks = new Set(
-      Object.keys(commentCounts).map((key) => key.split(":", 1)[0])
-    );
-
     for (const entry of entries) {
-      const key = `${entry.bookSlug}:${entry.lognumber}`;
-      const current = parseCommentCount(entry);
-      const isNewEntry = !Object.prototype.hasOwnProperty.call(commentCounts, key);
+      const previousHighWatermark = Number(previousHighWatermarks[entry.bookSlug] || 0);
+      const isNewEntry = Number(entry.lognumber) > previousHighWatermark;
       const watchedMatches = findWatchedNameMatches(entry, watchedNameSet);
 
-      if (initialized && baselineBooks.has(entry.bookSlug) && isNewEntry && watchedMatches.length) {
+      if (initialized && previousHighWatermark > 0 && isNewEntry && watchedMatches.length) {
         watchedNameAlerts.push({ ...entry, watchedMatches });
       }
-      nextCounts[key] = current;
     }
 
     const entryMetadata = new Map(entries.map((entry) => [`${entry.bookSlug}:${entry.lognumber}`, entry]));
@@ -703,6 +726,7 @@ async function checkForComments() {
       commentCounts: nextCounts,
       renderedCommentCounts: nextRenderedCommentCounts,
       renderedCommentsInitialized: true,
+      entryHighWatermarks: nextHighWatermarks,
       seenCommentIds: pruneSeenCommentIds(nextSeenCommentIds, commentScan.cursor),
       commentIdsInitialized: true,
       commentCursor: commentScan.cursor,
@@ -904,7 +928,7 @@ async function addLogbook(value) {
 async function removeLogbook(value) {
   const slug = String(value || "").trim().toLocaleLowerCase();
   const state = await chrome.storage.local.get([
-    "monitoredBooks", "enabledBooks", "commentCounts", "pageEventStates", "bookDiagnostics", "shiftSummariesByBook",
+    "monitoredBooks", "enabledBooks", "commentCounts", "renderedCommentCounts", "entryHighWatermarks", "pageEventStates", "bookDiagnostics", "shiftSummariesByBook",
     "shiftSummaryFingerprints", "shiftSummaryEditEnabledBooks", "logbookDowntime"
   ]);
   const books = normalizeMonitoredBooks(state.monitoredBooks);
@@ -918,12 +942,17 @@ async function removeLogbook(value) {
   const nextCounts = Object.fromEntries(
     Object.entries(state.commentCounts || {}).filter(([key]) => !key.startsWith(`${slug}:`))
   );
+  const nextRenderedCounts = Object.fromEntries(
+    Object.entries(state.renderedCommentCounts || {}).filter(([key]) => !key.startsWith(`${slug}:`))
+  );
+  const nextHighWatermarks = { ...(state.entryHighWatermarks || {}) };
   const nextEventStates = { ...(state.pageEventStates || {}) };
   const nextDiagnostics = { ...(state.bookDiagnostics || {}) };
   const nextShiftSummaries = { ...(state.shiftSummariesByBook || {}) };
   const nextShiftFingerprints = { ...(state.shiftSummaryFingerprints || {}) };
   const nextDowntime = normalizeLogbookDowntime(state.logbookDowntime, books);
   delete nextEventStates[slug];
+  delete nextHighWatermarks[slug];
   delete nextDiagnostics[slug];
   delete nextShiftSummaries[slug];
   delete nextShiftFingerprints[slug];
@@ -932,6 +961,8 @@ async function removeLogbook(value) {
     monitoredBooks: nextBooks,
     enabledBooks: nextEnabled,
     commentCounts: nextCounts,
+    renderedCommentCounts: nextRenderedCounts,
+    entryHighWatermarks: nextHighWatermarks,
     pageEventStates: nextEventStates,
     bookDiagnostics: nextDiagnostics,
     shiftSummariesByBook: nextShiftSummaries,
@@ -1526,22 +1557,19 @@ async function showSystemNotification(alert) {
   const recordHistory = !isTest && alert.recordHistory !== false;
   const bypassDeliveryControls = isTest || alert.recordHistory === false;
   const state = await chrome.storage.local.get([
-    "pendingAlerts", "alertHistory", "alertPreferences", "quietHours", "notificationsSnoozedUntil"
+    "alertHistory", "alertPreferences", "quietHours", "notificationsSnoozedUntil"
   ]);
-  const pendingAlerts = state.pendingAlerts || {};
   const alertHistory = state.alertHistory || [];
   const createdAt = Date.now();
   const priority = normalizeAlertPriority(alert.priority);
   const deliverSystem = bypassDeliveryControls || shouldDeliverAlert(alert.alertType, "system", state, createdAt);
   const deliverEmail = recordHistory && shouldDeliverAlert(alert.alertType, "email", state, createdAt);
-  if (deliverSystem) {
-    pendingAlerts[notificationId] = {
-      ...alert,
-      id: notificationId,
-      baseId: alert.id,
-      createdAt
-    };
-  }
+  const pendingAlert = {
+    ...alert,
+    id: notificationId,
+    baseId: alert.id,
+    createdAt
+  };
   const nextAlertHistory = recordHistory
     ? [{
         id: notificationId,
@@ -1556,21 +1584,26 @@ async function showSystemNotification(alert) {
         deliveredEmail: deliverEmail
       }, ...normalizeAlertHistory(alertHistory)].slice(0, MAX_ALERT_HISTORY)
     : normalizeAlertHistory(alertHistory);
-  await chrome.storage.local.set({ pendingAlerts, alertHistory: nextAlertHistory });
-  await updateAlertBadge(pendingAlerts);
+  await chrome.storage.local.set({ alertHistory: nextAlertHistory });
   if (deliverSystem) {
-    await chrome.notifications.create(notificationId, {
-      type: "basic",
-      iconUrl: "icon.png",
-      title: alert.systemTitle,
-      message: alert.message,
-      contextMessage: `${alertPriorityLabel(priority)} · JLab Logbook`,
-      requireInteraction: true,
-      priority: chromeNotificationPriority(priority),
-      buttons: isTest
-        ? [{ title: "Clear" }]
-        : [{ title: "Clear" }, { title: alert.openButtonTitle || "Go to entry" }]
-    });
+    await storePendingAlert(pendingAlert);
+    try {
+      await chrome.notifications.create(notificationId, {
+        type: "basic",
+        iconUrl: "icon.png",
+        title: alert.systemTitle,
+        message: alert.message,
+        contextMessage: `${alertPriorityLabel(priority)} · JLab Logbook`,
+        requireInteraction: true,
+        priority: chromeNotificationPriority(priority),
+        buttons: isTest
+          ? [{ title: "Clear" }]
+          : [{ title: "Clear" }, { title: alert.openButtonTitle || "Go to entry" }]
+      });
+    } catch (error) {
+      await removePendingAlertRecord(notificationId);
+      throw error;
+    }
   }
   if (deliverEmail) {
     await sendAlertEmail(alert).catch(recordEmailFailure);
@@ -1598,11 +1631,67 @@ async function getAlert(id) {
 }
 
 async function removeAlert(id) {
-  const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
-  delete pendingAlerts[id];
-  await chrome.storage.local.set({ pendingAlerts });
-  await updateAlertBadge(pendingAlerts);
+  await removePendingAlertRecord(id);
   await chrome.notifications.clear(id);
+}
+
+function queuePendingAlertWrite(work) {
+  pendingAlertWriteQueue = pendingAlertWriteQueue.then(work, work);
+  return pendingAlertWriteQueue;
+}
+
+async function storePendingAlert(alert) {
+  return queuePendingAlertWrite(async () => {
+    const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
+    const combined = { ...pendingAlerts, [alert.id]: alert };
+    const limited = limitPendingAlerts(combined);
+    const removedIds = Object.keys(combined).filter((id) => !Object.prototype.hasOwnProperty.call(limited, id));
+    await chrome.storage.local.set({ pendingAlerts: limited });
+    await updateAlertBadge(limited);
+    await Promise.all(
+      removedIds
+        .filter((id) => isMonitorNotification(id) || isTestNotification(id))
+        .map((id) => chrome.notifications.clear(id))
+    );
+    return limited;
+  });
+}
+
+async function removePendingAlertRecord(id) {
+  return removePendingAlertRecords([id]);
+}
+
+async function removePendingAlertRecords(ids) {
+  const removed = new Set((Array.isArray(ids) ? ids : []).map(String));
+  if (!removed.size) return null;
+  return queuePendingAlertWrite(async () => {
+    const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
+    const next = limitPendingAlerts(
+      Object.fromEntries(Object.entries(pendingAlerts).filter(([id]) => !removed.has(id)))
+    );
+    await chrome.storage.local.set({ pendingAlerts: next });
+    await updateAlertBadge(next);
+    return next;
+  });
+}
+
+async function reconcilePendingAlerts() {
+  return queuePendingAlertWrite(async () => {
+    const [notifications, storage] = await Promise.all([
+      chrome.notifications.getAll(),
+      chrome.storage.local.get("pendingAlerts")
+    ]);
+    const activeIds = Object.keys(notifications)
+      .filter((id) => isMonitorNotification(id) || isTestNotification(id));
+    const { pendingAlerts, orphanedNotificationIds } = reconcilePendingAlertState(
+      storage.pendingAlerts || {},
+      activeIds
+    );
+    await chrome.storage.local.set({ pendingAlerts });
+    await updateAlertBadge(pendingAlerts);
+    await Promise.all(orphanedNotificationIds.map((id) => chrome.notifications.clear(id)));
+    return pendingAlerts;
+  });
 }
 
 async function openAlert(id) {
@@ -1716,8 +1805,8 @@ async function clearAllNotifications() {
       .filter((id) => isMonitorNotification(id) || isTestNotification(id))
       .map((id) => chrome.notifications.clear(id))
   );
-  await chrome.storage.local.set({ pendingAlerts: {} });
-  await updateAlertBadge({});
+  const { pendingAlerts = {} } = await chrome.storage.local.get("pendingAlerts");
+  await removePendingAlertRecords(Object.keys(pendingAlerts));
 }
 
 function isMonitorNotification(id) {
