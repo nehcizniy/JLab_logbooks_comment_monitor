@@ -153,11 +153,16 @@
           <button type="button" data-shift-crew-tab="hallC" aria-controls="shift-crew-simple-list" aria-pressed="true">C</button>
           <button type="button" data-shift-crew-tab="hallD" aria-controls="shift-crew-simple-list" aria-pressed="true">D</button>
         </div>
-        <aside class="shift-crew-hover-card">
+        <div class="shift-crew-simple-card">
           <strong>Current shift crew</strong>
           <small>JLab local time</small>
           <div id="shift-crew-simple-list" class="shift-crew-simple-list"></div>
-          <div class="shift-crew-hover-row shift-crew-advanced-preview"><a id="shift-crew-hover-link">Hall A</a><span id="shift-crew-hover-current"></span></div>
+        </div>
+        <aside id="shift-crew-hover-card" class="shift-crew-hover-card" hidden aria-live="polite">
+          <span class="shift-crew-preview-label">Current shift crew</span>
+          <a id="shift-crew-hover-link">Hall A</a>
+          <strong id="shift-crew-hover-current"></strong>
+          <small id="shift-crew-hover-detail">JLab local time</small>
         </aside>
       </summary>
       <div class="shift-crew-body">
@@ -190,7 +195,6 @@
         <span id="shift-crew-status" class="shift-crew-status" aria-live="polite"></span>
       </div>
     </details>
-
     <details class="shift-summary-card" data-popup-view="shifts" data-simple-visible data-collapse-key="shift-summaries">
       <summary class="fold-summary">
         <span class="fold-summary-copy">

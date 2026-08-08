@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.2.4
+
+- Restored the Advanced Shift Crew preview to its original 268-pixel size and position beneath the Hall buttons without resizing or shifting the main interface.
+- Bounded retained comment-count and pending-notification state, preserved watched-name detection with per-logbook high-water marks, reconciled stored alerts with active Chrome notifications, and removed dismissed alerts automatically.
+
 ## 3.2.3
 
 - Fixed Hall B and Hall D shift-schedule matching on days 1–9 when their pages omit the leading zero from the date.

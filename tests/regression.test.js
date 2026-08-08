@@ -7,7 +7,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const context = { URL, Intl, Date, console, setTimeout, clearTimeout, Promise };
 vm.createContext(context);
-for (const file of ["monitor-policy.js", "health.js", "jlab-parsers.js", "extension-updates.js", "shift-crew.js"]) {
+for (const file of ["monitor-policy.js", "health.js", "jlab-parsers.js", "state-limits.js", "extension-updates.js", "shift-crew.js"]) {
   vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), context, { filename: file });
 }
 const fixture = (name) => fs.readFileSync(path.join(__dirname, "fixtures", name), "utf8");
@@ -163,6 +163,52 @@ test("groups multiple new comments into one alert per logbook entry", () => {
   assert.equal(hclog.commentUrl, "/comment/58420");
 });
 
+test("bounds retained comment counts and pending notifications", () => {
+  const entries = [
+    { bookSlug: "hclog", lognumber: 4524731, numcomments: 2 },
+    { bookSlug: "hblog", lognumber: 4524659, numcomments: 1 }
+  ];
+  const counts = context.currentEntryCommentCounts(entries);
+  assert.equal(counts["hclog:4524731"], 2);
+  assert.equal(Object.keys(counts).length, 2);
+  const pruned = context.pruneEntryCountMap({
+    "hclog:4524700": 4,
+    "hclog:4524731": 1,
+    "hblog:4524659": 1
+  }, entries);
+  assert.equal(Object.keys(pruned).length, 2);
+  assert.equal("hclog:4524700" in pruned, false);
+
+  const migratedWatermarks = context.normalizeEntryHighWatermarks(
+    { hclog: 4524700 },
+    { "hclog:4524730": 0, "hblog:4524659": 0 },
+    ["hclog", "hblog"]
+  );
+  assert.equal(migratedWatermarks.hclog, 4524730);
+  assert.equal(migratedWatermarks.hblog, 4524659);
+  const advancedWatermarks = context.advanceEntryHighWatermarks(migratedWatermarks, entries, ["hclog"]);
+  assert.equal(advancedWatermarks.hclog, 4524731);
+  assert.equal("hblog" in advancedWatermarks, false);
+
+  const pendingAlerts = Object.fromEntries(
+    Array.from({ length: 105 }, (_unused, index) => [
+      `jlab-comment:test:${index}`,
+      { id: `jlab-comment:test:${index}`, systemTitle: `Alert ${index}`, createdAt: index }
+    ])
+  );
+  const limited = context.limitPendingAlerts(pendingAlerts);
+  assert.equal(Object.keys(limited).length, 100);
+  assert.equal("jlab-comment:test:104" in limited, true);
+  assert.equal("jlab-comment:test:4" in limited, false);
+  const reconciled = context.reconcilePendingAlertState(
+    pendingAlerts,
+    [...Object.keys(pendingAlerts), "jlab-comment:orphan"]
+  );
+  assert.equal(Object.keys(reconciled.pendingAlerts).length, 100);
+  assert.equal(reconciled.orphanedNotificationIds.length, 6);
+  assert.equal(reconciled.orphanedNotificationIds.includes("jlab-comment:orphan"), true);
+});
+
 test("parses MIS, Hall B, and Hall D schedule boundaries", () => {
   const mis = context.parseShiftScheduleHtml(fixture("mis-shifts.html"), easternHour(1));
   assert.equal(mis.status, "ok");
@@ -279,7 +325,7 @@ test("compares extension releases and selects the packaged ZIP", () => {
 test("manifest and popup retain required extension structure", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  assert.equal(manifest.version, "3.2.3");
+  assert.equal(manifest.version, "3.2.4");
   assert.equal(packageJson.version, manifest.version);
   const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "popup.css"), "utf8");
@@ -304,7 +350,8 @@ test("manifest and popup retain required extension structure", () => {
     "extension-update-details", "track-extension-updates", "check-extension-update", "open-update-guide",
     "open-previous-versions", "dtm-status", "dtm-status-detail", "dtm-status-dot",
     "open-dtm", "dtm-interval", "repeat-dtm-alerts", "new-entry", "open-logbooks", "dark-mode",
-    "shift-crew-hover-link", "shift-crew-hover-current", "shift-crew-simple-list",
+    "shift-crew-simple-list", "shift-crew-hover-card", "shift-crew-hover-link",
+    "shift-crew-hover-current", "shift-crew-hover-detail",
     "interface-mode-select", "simple-logbook-buttons"
   ]) {
     assert.equal(ids.includes(id), true, `missing #${id}`);
@@ -334,13 +381,19 @@ test("manifest and popup retain required extension structure", () => {
   assert.equal([...html.matchAll(/data-shift-crew-tab="hall[A-D]"/g)].length, 4);
   assert.equal([...html.matchAll(/class="shift-crew-input-row"/g)].length, 4);
   assert.match(html, /shift-crew-summary[\s\S]*shift-crew-tabs[\s\S]*<\/summary>/);
-  assert.match(popupJs, /button\.addEventListener\("mouseenter", \(\) => previewShiftCrew/);
+  assert.match(popupJs, /button\.addEventListener\("mouseenter", \(\) => showShiftCrewPreview/);
+  assert.match(popupJs, /shiftCrewHoverCard\.hidden = false/);
+  assert.match(popupJs, /setTimeout\(hideShiftCrewPreview, 350\)/);
+  assert.match(css, /\.shift-crew-hover-card \{ position: absolute;[^}]*width: 268px;/);
+  assert.equal(manifest.permissions.includes("windows"), false);
   assert.match(popupJs, /simpleShiftCrewHalls/);
   assert.match(popupJs, /function renderSimpleShiftCrewList\(/);
   assert.match(html, /class="simple-logbook-shortcut"[^>]+data-simple-only/);
   assert.match(popupJs, /function renderSimpleLogbookShortcut\(/);
   assert.match(popupJs, /simpleLogbookButtons\.append\(button\)/);
   assert.match(popupJs, /encodeURIComponent\(book\.slug\)/);
+  assert.match(backgroundJs, /chrome\.notifications\.onClosed\.addListener/);
+  assert.match(backgroundJs, /await reconcilePendingAlerts\(\)/);
   assert.match(popupJs, /async function initializePopupPreferences\(\)/);
   assert.match(popupJs, /function initializeCollapsibleSections\(/);
   assert.match(popupJs, /chrome\.storage\.local\.set\(\{ popupView: activePopupView \}\)/);
